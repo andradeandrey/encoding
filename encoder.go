@@ -1,23 +1,22 @@
 package ebml
 
 import (
-	"bufio"
 	"io"
 )
 
 // An Encoder writes EBML data to an output stream.
 type Encoder struct {
-	*bufio.Writer
+	io.Writer
 }
 
 // NewEncoder returns a new encoder that writes to w.
 func NewEncoder(w io.Writer) *Encoder {
-	return &Encoder{Writer: bufio.NewWriter(w)}
+	return &Encoder{w}
 }
 
-// Encode writes a value that conforms to the Container 
+// Encode writes a value that conforms to the Container
 // or Element interface.
-func (e *Encoder) Encode(v interface{}) (err error) {
+func (e *Encoder) Encode(v Element) (err error) {
 	if V, ok := v.(Container); ok {
 		e.EncodeID(V.ID())
 		e.EncodeSize(V.Size())
@@ -29,7 +28,7 @@ func (e *Encoder) Encode(v interface{}) (err error) {
 		}
 		return
 	}
-	if V, ok := v.(Element); ok {
+	if V, ok := v.(Value); ok {
 		e.EncodeID(V.ID())
 		e.EncodeSize(V.Size())
 		_, err = io.Copy(e, V)
@@ -48,47 +47,41 @@ func (e *Encoder) PutHeader(docType string, docTypeVersion, docTypeReadVersion u
 	return e.Encode(newHeader(docType, docTypeVersion, docTypeReadVersion))
 }
 
+// PutUint writes an unsigned interger with ebml ID id to the encoder strem.
+func (e *Encoder) PutUint(id uint32, v uint64) error {
+	i := NewUint(id, v)
+	return e.Encode(i)
+}
+
 // EncodeID writes an element ID to the encoder stream.
 //
 // See the Encode convenience function.
 func (e *Encoder) EncodeID(x uint32) (err error) {
-	var buf []byte
+	var s int
 	switch {
-	case x == 0:
-		_, err = e.Write([]byte{byte(0)})
-		return err
 
-	case x < 127:
-		b := byte(x)
-		buf = []byte{b | 0x80}
-
-	case x < 16383:
-		buf = make([]byte, 2)
-		buf[1] = byte(x)
-		x >>= 8
-		buf[0] = byte(x) | 0x40
-
-	case x < 2097151:
-		buf = make([]byte, 3)
-		buf[2] = byte(x)
-		x >>= 8
-		buf[1] = byte(x)
-		x >>= 8
-		buf[0] = byte(x) | 0x20
-
-	case x < 268435455:
-		buf = make([]byte, 4)
-		buf[3] = byte(x)
-		x >>= 8
-		buf[2] = byte(x)
-		x >>= 8
-		buf[1] = byte(x)
-		x >>= 8
-		buf[0] = byte(x) | 0x10
-
+	case x < 0x10:
+		panic("invalid element ID")
+	case x < 0x400:
+		s = 1
+	case x < 0x8000:
+		s = 2
+	case x < 0x400000:
+		s = 3
+	case x < 0x20000000:
+		s = 4
 	default:
 		panic("element ID overflow")
 	}
+
+	buf := make([]byte, s)
+	s--
+	for s > 0 {
+		buf[s] = byte(x)
+		x >>= 8
+		s--
+	}
+	buf[0] = byte(x)
 
 	_, err = e.Write(buf)
 	return
@@ -109,73 +102,48 @@ const (
 //
 // See the Encode convenience function.
 func (e *Encoder) EncodeSize(x uint64) (err error) {
-	var buf []byte
+	var s int
+	var m byte
 	switch {
 	case x == 0:
 		_, err = e.Write([]byte{byte(0)})
 		return err
-
 	case x < o1:
-		b := byte(x)
-		buf = []byte{b | 0x80}
-
+		s = 1
+		m = 0x80
 	case x < o2:
-		buf = make([]byte, 2)
-		buf[1] = byte(x)
-		x >>= 8
-		buf[0] = byte(x) | 0x40
-
+		s = 2
+		m = 0x40
 	case x < o3:
-		buf = make([]byte, 3)
-		buf[2] = byte(x)
-		x >>= 8
-		buf[1] = byte(x)
-		x >>= 8
-		buf[0] = byte(x) | 0x20
-
+		s = 3
+		m = 0x20
 	case x < o4:
-		buf = make([]byte, 4)
-		for i := 3; i > 0; i-- {
-			buf[i] = byte(x)
-			x >>= 8
-		}
-		buf[0] = byte(x) | 0x10
-
+		s = 4
+		m = 0x10
 	case x < o5:
-		buf = make([]byte, 5)
-		for i := 4; i > 0; i-- {
-			buf[i] = byte(x)
-			x >>= 8
-		}
-		buf[0] = byte(x) | 0x08
-
+		s = 5
+		m = 0x08
 	case x < o6:
-		buf = make([]byte, 6)
-		for i := 5; i > 0; i-- {
-			buf[i] = byte(x)
-			x >>= 8
-		}
-		buf[0] = byte(x) | 0x04
-
+		s = 6
+		m = 0x04
 	case x < o7:
-		buf = make([]byte, 7)
-		for i := 6; i > 0; i-- {
-			buf[i] = byte(x)
-			x >>= 8
-		}
-		buf[0] = byte(x) | 0x02
-
+		s = 7
+		m = 0x02
 	case x < o8:
-		buf = make([]byte, 8)
-		for i := 7; i > 0; i-- {
-			buf[i] = byte(x)
-			x >>= 8
-		}
-		buf[0] = 0x01
-
+		s = 8
+		m = 0x01
 	default:
 		panic("element size overflow")
 	}
+
+	buf := make([]byte, s)
+	s--
+	for s > 0 {
+		buf[s] = byte(x)
+		x >>= 8
+		s--
+	}
+	buf[0] = byte(x) | m
 
 	_, err = e.Write(buf)
 	return
