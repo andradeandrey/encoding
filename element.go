@@ -2,23 +2,19 @@ package ebml
 
 import "io"
 
-const (
-	HeaderID = 0xa45dfa3
-	DocTypeID = 0x4282
-	DocTypeVersionID = 0x4287
-	DocTypeReadVersionID = 0x4285
-)
-
 type Element interface {
 	ID() uint32
-	Size() uint64
-	io.Reader
+	Size() int64
 }
 
 type Container interface {
-	ID() uint32
-	Size() uint64
+	Element
 	Next() Element
+}
+
+type Value interface {
+	Element
+	io.Reader
 }
 
 type header struct {
@@ -27,7 +23,7 @@ type header struct {
 	docTypeReadVersion *Uint
 }
 
-func newHeader(docType string, docTypeVersion, docTypeReadVersion uint64) *header {
+func newHeader(docType string, docTypeVersion, docTypeReadVersion interface{}) *header {
 	return &header{
 		NewString(DocTypeID, docType),
 		NewUint(DocTypeVersionID, docTypeVersion),
@@ -35,9 +31,9 @@ func newHeader(docType string, docTypeVersion, docTypeReadVersion uint64) *heade
 	}
 }
 
-func (h *header) ID() uint32 { return HeaderID }
+func (h *header) ID() uint32 { return EBMLID }
 
-func (h *header) Size() (n uint64) {
+func (h *header) Size() (n int64) {
 	return h.docType.Size() + h.docTypeVersion.Size() + h.docTypeReadVersion.Size()
 }
 

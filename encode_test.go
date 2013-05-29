@@ -42,7 +42,7 @@ func BenchmarkEncodeID(b *testing.B) {
 }
 
 var goldenSizes = []struct {
-	in  uint64
+	in  int64
 	out []byte
 }{
 	{0, []byte{0}},
@@ -80,6 +80,6 @@ func TestGoldenSizes(t *testing.T) {
 func BenchmarkEncodeSize(b *testing.B) {
 	enc := NewEncoder(ioutil.Discard)
 	for i := 0; i < b.N; i++ {
-		enc.EncodeSize(uint64(i))
+		enc.EncodeSize(int64(i))
 	}
 }
