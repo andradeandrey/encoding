@@ -1,10 +1,12 @@
 package ebml
 
-import "io"
+import (
+	"io"
+)
 
 type Element interface {
-	ID() uint32
-	Size() int64
+	ID() []byte
+	Size() uint64
 }
 
 type Container interface {
@@ -18,6 +20,10 @@ type Value interface {
 }
 
 type header struct {
+	version            *Uint
+	readVersion        *Uint
+	maxIDLength        *Uint
+	maxSizeLength      *Uint
 	docType            *String
 	docTypeVersion     *Uint
 	docTypeReadVersion *Uint
@@ -25,20 +31,40 @@ type header struct {
 
 func newHeader(docType string, docTypeVersion, docTypeReadVersion interface{}) *header {
 	return &header{
+		NewUint(EBMLVersionID, uint32(1)),
+		NewUint(EBMLReadVersionID, uint32(1)),
+		NewUint(EBMLMaxIDLengthID, uint32(4)),
+		NewUint(EBMLMaxSizeLengthID, uint32(8)),
 		NewString(DocTypeID, docType),
 		NewUint(DocTypeVersionID, docTypeVersion),
 		NewUint(DocTypeReadVersionID, docTypeReadVersion),
 	}
 }
 
-func (h *header) ID() uint32 { return EBMLID }
+func (h *header) ID() []byte { return EBMLID }
 
-func (h *header) Size() (n int64) {
+func (h *header) Size() uint64 {
 	return h.docType.Size() + h.docTypeVersion.Size() + h.docTypeReadVersion.Size()
 }
 
 func (h *header) Next() (e Element) {
 	switch {
+	case h.version != nil:
+		e = h.version
+		h.version = nil
+
+	case h.readVersion != nil:
+		e = h.readVersion
+		h.readVersion = nil
+
+	case h.maxIDLength != nil:
+		e = h.maxIDLength
+		h.maxIDLength = nil
+
+	case h.maxSizeLength != nil:
+		e = h.maxSizeLength
+		h.maxSizeLength = nil
+
 	case h.docType != nil:
 		e = h.docType
 		h.docType = nil
@@ -46,7 +72,7 @@ func (h *header) Next() (e Element) {
 	case h.docTypeVersion != nil:
 		e = h.docTypeVersion
 		h.docTypeVersion = nil
-		
+
 	case h.docTypeReadVersion != nil:
 		e = h.docTypeReadVersion
 		h.docTypeReadVersion = nil

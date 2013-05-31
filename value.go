@@ -1,126 +1,179 @@
 package ebml
 
 import (
-	"bytes"
+	"io"
 )
 
 type Int struct {
-	id uint32
-	*bytes.Buffer
+	id  []byte
+	buf []byte
+	off int
 }
 
-func (i *Int) ID() uint32 { return i.id }
+func (i *Int) ID() []byte { return i.id }
 
-func (i *Int) Size() int64 { return int64(i.Len()) }
+func (i *Int) Size() uint64 { return uint64(len(i.buf)) }
 
-func NewInt(id uint32, v interface{}) *Int {
-	var i int64
-	switch x := v.(type) {
+func (i *Int) Read(p []byte) (n int, err error) {
+	if i.off >= len(i.buf) {
+		if len(p) == 0 {
+			return
+		}
+		return 0, io.EOF
+	}
+	n = copy(p, i.buf[i.off:])
+	i.off += n
+	return
+}
+
+func NewInt(id []byte, v interface{}) *Int {
+	var x int64
+	switch V := v.(type) {
 	case int:
-		i = int64(x)
+		x = int64(V)
 	case int32:
-		i = int64(x)
+		x = int64(V)
 	case int64:
-		i = int64(x)
+		x = int64(V)
 	default:
 		return nil
 	}
 
-	var s int
+	var i int
 	switch {
-	case i < 0x8F, i > -0x8F:
-		s = 1
-	case i < 0x8FFF, i > -0x8FFF:
-		s = 2
-	case i < 0x8FFFFF, i > -0x8FFFFF:
-		s = 3
-	case i < 0x8FFFFFFF, i > -0x8FFFFFFF:
-		s = 4
-	case i < 0x8FFFFFFFFF, i > -0x8FFFFFFFFF:
-		s = 5
-	case i < 0x8FFFFFFFFFFF, i > -0x8FFFFFFFFFFF:
-		s = 6
-	case i < 0x8FFFFFFFFFFFFF, i > -0x8FFFFFFFFFFFFF:
-		s = 7
+	case x < 0x8F, x > -0x8F:
+		i = 1
+	case x < 0x8FFF, x > -0x8FFF:
+		i = 2
+	case x < 0x8FFFFF, x > -0x8FFFFF:
+		i = 3
+	case x < 0x8FFFFFFF, x > -0x8FFFFFFF:
+		i = 4
+	case x < 0x8FFFFFFFFF, x > -0x8FFFFFFFFF:
+		i = 5
+	case x < 0x8FFFFFFFFFFF, x > -0x8FFFFFFFFFFF:
+		i = 6
+	case x < 0x8FFFFFFFFFFFFF, x > -0x8FFFFFFFFFFFFF:
+		i = 7
 	default:
-		s = 8
+		i = 8
 	}
-	b := make([]byte, s)
-	for s > 1 {
-		s--
-		b[s] = byte(i)
-		i >>= 8
-	}
-	b[0] = byte(i)
 
-	return &Int{id, bytes.NewBuffer(b)}
+	j := len(id) + 1 + i
+	b := make([]byte, j)
+	k := copy(b, id)
+	// Too much type conversion
+	k = copy(b[k:], MarshallSize(uint64(i)))
+
+	for j > k {
+		j--
+		b[j] = byte(x)
+		x >>= 8
+	}
+	b[j] = byte(x)
+
+	return &Int{id, b, 0}
 }
 
 type Uint struct {
-	id uint32
-	*bytes.Buffer
+	id  []byte
+	buf []byte
+	off int
 }
 
-func (u *Uint) ID() uint32 { return u.id }
+func (u *Uint) ID() []byte { return u.id }
 
-func (u *Uint) Size() int64 { return int64(u.Len()) }
+func (u *Uint) Size() uint64 { return uint64(len(u.buf)) }
 
-func NewUint(id uint32, v interface{}) *Uint {
-	var i uint64
-	switch x := v.(type) {
+func (u *Uint) Read(p []byte) (n int, err error) {
+	if u.off >= len(u.buf) {
+		if len(p) == 0 {
+			return
+		}
+		return 0, io.EOF
+	}
+	n = copy(p, u.buf[u.off:])
+	u.off += n
+	return
+}
+
+func NewUint(id []byte, v interface{}) *Uint {
+	var x uint64
+	switch V := v.(type) {
 	case uint:
-		i = uint64(x)
+		x = uint64(V)
 	case uint32:
-		i = uint64(x)
+		x = uint64(V)
 	case uint64:
-		i = uint64(x)
+		x = uint64(V)
 	default:
 		return nil
 	}
 
-	var s int
+	var i int
 	switch {
-	case i < 0xFF:
-		s = 1
-	case i < 0xFFFF:
-		s = 2
-	case i < 0xFFFFFF:
-		s = 3
-	case i < 0xFFFFFFFF:
-		s = 4
-	case i < 0xFFFFFFFFFF:
-		s = 5
-	case i < 0xFFFFFFFFFFFF:
-		s = 6
-	case i < 0xFFFFFFFFFFFFFF:
-		s = 7
+	case x < 0xFF:
+		i = 1
+	case x < 0xFFFF:
+		i = 2
+	case x < 0xFFFFFF:
+		i = 3
+	case x < 0xFFFFFFFF:
+		i = 4
+	case x < 0xFFFFFFFFFF:
+		i = 5
+	case x < 0xFFFFFFFFFFFF:
+		i = 6
+	case x < 0xFFFFFFFFFFFFFF:
+		i = 7
 	default:
-		s = 8
+		i = 8
 	}
-	b := make([]byte, s)
-	for s > 1 {
-		s--
-		b[s] = byte(i)
-		i >>= 8
-	}
-	b[0] = byte(i)
-	return &Uint{id, bytes.NewBuffer(b)}
-}
 
-type Float struct {
-	s int
-	b []byte
+	j := len(id) + 1 + i
+	b := make([]byte, j)
+	k := copy(b, id)
+	k += copy(b[k:], MarshallSize(uint64(i)))
+
+	for j > k {
+		j--
+		b[j] = byte(x)
+		x >>= 8
+	}
+	b[j] = byte(i)
+	return &Uint{id, b, 0}
 }
 
 type String struct {
-	id uint32
-	*bytes.Buffer
+	id  []byte
+	buf []byte
+	off int
 }
 
-func (s *String) ID() uint32 { return s.id }
+func (s *String) ID() []byte { return s.id }
 
-func (s *String) Size() int64 { return int64(s.Len()) }
+func (s *String) Size() uint64 { return uint64(len(s.buf)) }
 
-func NewString(id uint32, s string) *String {
-	return &String{id, bytes.NewBufferString(s)}
+func (s *String) Read(p []byte) (n int, err error) {
+	if s.off >= len(s.buf) {
+		if len(p) == 0 {
+			return
+		}
+		return 0, io.EOF
+	}
+	n = copy(p, s.buf[s.off:])
+	s.off += n
+	return
+}
+
+func NewString(id []byte, s string) *String {
+	sb := []byte(s)
+	sz := MarshallSize(uint64(len(sb)))
+	buf := make([]byte, len(id)+len(sz)+len(sb))
+
+	n := copy(buf, id)
+	n += copy(buf[n:], sz)
+	copy(buf[n:], sb)
+
+	return &String{id, buf, 0}
 }

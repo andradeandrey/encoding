@@ -2,13 +2,12 @@ package ebml
 
 import (
 	"bytes"
-	"io/ioutil"
 	"testing"
 )
 
 var goldenIDs = []struct {
-	in  uint32
-	out []byte
+	num   uint32
+	bytes []byte
 }{
 	{0x1A45DFA3, []byte{0x1A, 0x45, 0xDF, 0xA3}}, // EBML
 	{0x4286, []byte{0x42, 0x86}},                 // EBMLVersion
@@ -18,35 +17,24 @@ var goldenIDs = []struct {
 	{0x4282, []byte{0x42, 0x82}},                 // DocType
 	{0x4287, []byte{0x42, 0x87}},                 // DocTypeVersion
 	{0x4285, []byte{0x42, 0x85}},                 // DocTypeReadVersion
-	{0xBF, []byte{0xBF}},                         // CRC-32
-	{0x3FFF, []byte{0x3F, 0XFF}},
 }
 
 func TestGoldenIDs(t *testing.T) {
 	for _, g := range goldenIDs {
-		buf := new(bytes.Buffer)
-		enc := NewEncoder(buf)
-		enc.EncodeID(g.in)
-		got := buf.Bytes()
-		if !bytes.Equal(got, g.out) {
-			t.Errorf("failed to marshal ID %d, wanted %v, got %v", g.in, g.out, got)
+		i, _ := UnmarshallID(g.bytes)
+		if i != g.num {
+			t.Errorf("failed to unmarshal ID %v, wanted %d, got %d", g.bytes, g.num, i)
 		}
 	}
 }
 
-func BenchmarkEncodeID(b *testing.B) {
-	enc := NewEncoder(ioutil.Discard)
-	for i := 0x10; i < b.N; i++ {
-		enc.EncodeID(uint32(i))
-	}
-}
-
 var goldenSizes = []struct {
-	in  int64
-	out []byte
+	num   uint64
+	bytes []byte
 }{
 	{0, []byte{0}},
 	{1, []byte{129}},
+	{2, []byte{130}},
 	{127, []byte{64, 127}},
 	{128, []byte{64, 128}},
 	{256, []byte{65, 0}},
@@ -67,19 +55,21 @@ var goldenSizes = []struct {
 
 func TestGoldenSizes(t *testing.T) {
 	for _, g := range goldenSizes {
-		buf := new(bytes.Buffer)
-		enc := NewEncoder(buf)
-		enc.EncodeSize(g.in)
-		got := buf.Bytes()
-		if !bytes.Equal(got, g.out) {
-			t.Errorf("failed to marshal size %d, wanted %v, got %v", g.in, g.out, got)
+		b := MarshallSize(g.num)
+		if !bytes.Equal(b, g.bytes) {
+			t.Errorf("failed to marshal size %d, wanted %v, got %v", g.num, g.bytes, b)
+		}
+
+		s, _ := UnmarshallSize(g.bytes)
+		if s != g.num {
+			t.Errorf("failed to unmarshal size %v, wanted %d, got %d", g.bytes, g.num, s)
 		}
 	}
 }
 
-func BenchmarkEncodeSize(b *testing.B) {
-	enc := NewEncoder(ioutil.Discard)
+func BenchmarkSizeMarshalling(b *testing.B) {
 	for i := 0; i < b.N; i++ {
-		enc.EncodeSize(int64(i))
+		b := MarshallSize(uint64(i))
+		UnmarshallSize(b)
 	}
 }
