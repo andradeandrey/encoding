@@ -6,10 +6,10 @@ package ebml
 
 // Header is a struct for encoding and decoding EBML streams.
 //
-// If nesting in a struct, it's field should be listed first 
+// If nesting in a struct, it's field should be listed first
 // and should should have an ebml tag set to 1a45dfa3.
-// 
-// The following could be a valid top-level struct for 
+//
+// The following could be a valid top-level struct for
 // representing Matroska streams:
 //	type Matroska struct {
 //		ebml.Header `ebml:"1a45dfa3"`
@@ -19,11 +19,11 @@ package ebml
 // You will however need to populate field values in Header
 // to form a valid EBML document.
 type Header struct {
-	EBMLVersion        uint   `ebml:"4286"`
-	EBMLReadVersion    uint   `ebml:"42f7"`
-	EBMLMaxIDLength    uint   `ebml:"42f2"`
-	EBMLMaxSizeLength  uint   `ebml:"42f3"`
+	EBMLVersion        uint8  `ebml:"4286"`
+	EBMLReadVersion    uint8  `ebml:"42f7"`
+	EBMLMaxIDLength    uint8  `ebml:"42f2"`
+	EBMLMaxSizeLength  uint8  `ebml:"42f3"`
 	DocType            string `ebml:"4282"`
-	DocTypeVersion     uint   `ebml:"4287"`
-	DocTypeReadVersion uint   `ebml:"4285"`
+	DocTypeVersion     uint8  `ebml:"4287"`
+	DocTypeReadVersion uint8  `ebml:"4285"`
 }

@@ -5,7 +5,6 @@
 package ebml
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -14,27 +13,6 @@ import (
 	"strconv"
 	"sync"
 )
-
-// Marshal returns the EBML encoding of v.
-//
-// If a struct is encountered with a field tag in the form of
-// `ebml:"FFFF"`, that field value will be encoded as an EBML
-// element with the Id found in that tag.
-func Marshal(v interface{}) ([]byte, error) {
-	var b bytes.Buffer
-	e := &encodeState{w: &b}
-	err := e.marshal(v)
-	if err != nil {
-		return nil, err
-	}
-	return b.Bytes(), nil
-}
-
-// Marshaler is the inerface implemented by objects that can
-// represent themselves as a io.Reader of a known length.
-type Marshaler interface {
-	MarshalEBML() (io.Reader, int64)
-}
 
 type encElement struct {
 	body     []byte
@@ -142,7 +120,7 @@ func reflectValue(id []byte, v reflect.Value) (*encElement, error) {
 		panic(fmt.Sprintf("nil id for value %v", v.Type()))
 	}
 
-	m, ok := v.Interface().(Marshaler)
+	/*m, ok := v.Interface().(Marshaler)
 	if !ok {
 		// v dosen't match the interface. Check against *v too.
 		if v.Kind() != reflect.Ptr && v.CanAddr() {
@@ -155,7 +133,7 @@ func reflectValue(id []byte, v reflect.Value) (*encElement, error) {
 	if ok && (v.Kind() != reflect.Ptr || !v.IsNil()) {
 		r, size := m.MarshalEBML()
 		return &encElement{reader: r, size: size}, nil
-	}
+	}*/
 
 	switch v.Kind() {
 	case reflect.Struct:
@@ -508,3 +486,5 @@ func cachedTypeFields(t reflect.Type) []field {
 	fieldCache.Unlock()
 	return f
 }
+
+const singletonField = 0

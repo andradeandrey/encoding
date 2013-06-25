@@ -33,16 +33,7 @@ func (enc *Encoder) Encode(v interface{}) error {
 	return nil
 }
 
-type Decoder struct {
-	r   io.ReadSeeker
-	err error
-}
-
-// NewDecoder returns as new decoder that reads from r.
-func NewDecoder(r io.ReadSeeker) *Decoder {
-	return &Decoder{r: r}
-}
-
+/*
 // Decode reads EBML elements into from the intov.
 func (dec *Decoder) Decode(v interface{}) error {
 	if dec.err != nil {
@@ -56,6 +47,7 @@ func (dec *Decoder) Decode(v interface{}) error {
 	}
 	return nil
 }
+*/
 
 /*
 func (dec *Decoder) decodeStruct(v reflect.Value) error {
