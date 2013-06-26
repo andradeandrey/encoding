@@ -220,6 +220,12 @@ func (d *decodeState) readValue(size int64, v reflect.Value) {
 		d.r.Read(b)
 		v.SetString(string(b))
 
+	case reflect.Ptr:
+		if v.IsNil() {
+			v.Set(reflect.New(v.Type().Elem()))
+		}
+		d.readValue(size, v.Elem())
+
 	default:
 		d.error(&UnsupportedTypeError{v.Type()})
 	}
