@@ -8,7 +8,6 @@ import (
 	"io"
 )
 
-
 type Decoder struct {
 	r   io.ReadSeeker
 	err error

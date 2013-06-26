@@ -174,10 +174,7 @@ func (d *decodeState) readSize() int64 {
 	return x
 }
 
-var i int
-
 func (d *decodeState) readValue(size int64, v reflect.Value) {
-	i++
 	if !v.IsValid() {
 		_, err := d.r.Seek(size, 1)
 		if err != nil {
@@ -187,7 +184,15 @@ func (d *decodeState) readValue(size int64, v reflect.Value) {
 	}
 
 	switch v.Kind() {
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		b := make([]byte, size)
+		_, err := d.r.Read(b)
+		if err != nil {
+			d.error(err)
+		}
+		v.SetInt(unmarshalInt(b))
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		b := make([]byte, size)
 		_, err := d.r.Read(b)
 		if err != nil {
@@ -356,6 +361,15 @@ func indirect(v reflect.Value) reflect.Value {
 		v = v.Elem()
 	}
 	return v
+}
+
+func unmarshalInt(b []byte) int64 {
+	x := int64(b[0])
+	for _, c := range b[1:] {
+		x <<= 8
+		x += int64(c)
+	}
+	return x
 }
 
 func unmarshalUint(b []byte) uint64 {

@@ -215,7 +215,9 @@ func fieldByIndex(v reflect.Value, index []int) reflect.Value {
 	return v
 }
 
-func parseIdTag(s string) ([]byte, error) {
+// ParseId marshals a hexadecimal number into a byte slice.
+// It can be used to check that an Id has the proper width bit set.
+func ParseId(s string) ([]byte, error) {
 	x, err := strconv.ParseUint(s, 16, 32)
 	if err != nil {
 		return nil, err
@@ -428,7 +430,7 @@ func typeFields(t reflect.Type) []field {
 				if tag == "" {
 					continue
 				}
-				id, err := parseIdTag(tag)
+				id, err := ParseId(tag)
 				if err != nil {
 					panic(err.Error())
 				}

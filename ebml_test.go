@@ -1,6 +1,7 @@
 package ebml
 
 import (
+	"bytes"
 	"reflect"
 	"testing"
 )
@@ -15,18 +16,24 @@ func TestMatroskaEBMLHeader(t *testing.T) {
 	headerA.DocTypeVersion = 1
 	headerA.DocTypeReadVersion = 1
 
-	b, err := Marshal(headerA)
+	dst := new(bytes.Buffer)
+	enc := NewEncoder(dst)
+
+	err := enc.Encode(headerA)
 	if err != nil {
 		t.Fatal("Marshal:", err)
 	}
 
+	src := bytes.NewReader(dst.Bytes())
+	dec := NewDecoder(src)
+
 	var headerB Header
-	err = Unmarshal(b, &headerB)
+	err = dec.Decode(&headerB)
 	if err != nil {
 		t.Fatal("Unmarshal:", err)
 	}
 
 	if !reflect.DeepEqual(headerA, headerB) {
-		t.Fatalf("Marshal -> Unmarshal: marshaled %v to %x, but unmarshaled %v", headerA, b, headerB)
+		t.Fatalf("Marshal -> Unmarshal: marshaled %v to %x, but unmarshaled %v", headerA, dst.Bytes(), headerB)
 	}
 }
