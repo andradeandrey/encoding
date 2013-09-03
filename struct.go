@@ -205,7 +205,11 @@ func (b *structBuilder) Key(k string) builder {
 		k = strings.ToLower(k)
 		for i := 0; i < t.NumField(); i++ {
 			field := t.Field(i)
-			if strings.ToLower(string(field.Tag)) == k ||
+			tag := field.Tag.Get("bencode")
+			if tag == "-" {
+				continue
+			}
+			if strings.ToLower(tag) == k ||
 				strings.ToLower(field.Name) == k {
 				return &structBuilder{val: v.Field(i)}
 			}
@@ -271,8 +275,9 @@ func (b *structBuilder) Key(k string) builder {
 // assign to upper case fields.  Unmarshal uses a case-insensitive
 // comparison to match bencode field names to struct field names.
 //
-// If you provide a tag string for a struct member, the tag string
-// will be used as the bencode dictionary key for that member.
+// If you provide a "bencode" key in the tag string for a struct member, the
+// tag string will be used as the bencode dictionary key for that member. If 
+// the field tag is "-" the field is ignored.
 //
 // To unmarshal a top-level bencode array, pass in a pointer to an empty
 // slice of the correct type.
@@ -413,8 +418,12 @@ func writeStruct(w io.Writer, val reflect.Value) (err error) {
 	for i := 0; i < numFields; i++ {
 		field := typ.Field(i)
 		key := field.Name
-		if len(field.Tag) > 0 {
-			key = string(field.Tag)
+		tag := field.Tag.Get("bencode")
+		if tag == "-" {
+			continue
+		}
+		if len(tag) > 0 {
+			key = string(tag)
 		}
 		svList[i].key = key
 		svList[i].value = val.Field(i)
@@ -497,7 +506,7 @@ func isValueNil(val reflect.Value) bool {
 //   Field int
 //
 //   // Field appears in bencode as key "myName".
-//   Field int "myName"
+//   Field int `bencode:"myName"`
 //
 // Anonymous struct fields are ignored.
 //
