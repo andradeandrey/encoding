@@ -181,9 +181,10 @@ func (b *structBuilder) Map() {
 	if b == nil {
 		return
 	}
+
 	if v := b.val; v.Kind() == reflect.Ptr {
 		if v.IsNil() {
-			v.Set(reflect.Zero(v.Type().Elem()).Addr())
+			v.Set(reflect.New(v.Type().Elem()))
 			b.Flush()
 		}
 		b.map_ = reflect.Value{}
