@@ -1,3 +1,6 @@
+// Copyright (c) 2013, Emery Hemingway.
+// See the LICENSE file for terms and conditions.
+
 package ebml
 
 import (
@@ -15,13 +18,6 @@ import (
 func Unmarshal(data []byte, v interface{}) error {
 	d := decodeState{r: bytes.NewReader(data)}
 	return d.unmarshal(v)
-}
-
-// Unmarshalar is the interface implemented by objects that can
-// unmarshal themselves from a an EBML stream fed into an io.Writer.
-// The Unmarshaler is free to block on Write and Close to pause decoding.
-type Unmarshaler interface {
-	UnmarshalEBML() io.WriteCloser
 }
 
 // An InvalidUnmarshalError describes an invalid argument passed to Unmarshal.
@@ -208,7 +204,7 @@ func (d *decodeState) readValue(size int64, v reflect.Value) {
 
 	case reflect.Interface:
 		if m, ok := v.Interface().(Unmarshaler); ok {
-			w := m.UnmarshalEBML()
+			w := m.UnmarshalEBML(size)
 			_, err := io.CopyN(w, d.r, size)
 			if err != nil {
 				d.error(err)
