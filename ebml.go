@@ -1,9 +1,39 @@
 // Copyright © 2013 Emery Hemingway
 // Released under the terms of the GNU Public License version 3
 
+// Package ebml marshals and unmarshals Go objects struct to and from
+// the Exensible Binary Markup Langauge.
 package ebml
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
+
+// Header is a struct for encoding and decoding EBML streams.
+//
+// If nesting in a struct, it's field should be listed first
+// and should should have an ebml tag set to 1a45dfa3.
+//
+// The following could be a valid top-level struct for
+// representing Matroska streams:
+//	type Matroska struct {
+//		ebml.Header `ebml:"1a45dfa3"`
+//		Segment     []Segment `ebml:"18538067"`
+//	}
+//
+// You will however need to populate field values in Header
+// to form a valid EBML document.
+type Header struct {
+	EbmlId             Id     `ebml:"1a45dfa3"`
+	EBMLVersion        uint8  `ebml:"4286"`
+	EBMLReadVersion    uint8  `ebml:"42f7"`
+	EBMLMaxIDLength    uint8  `ebml:"42f2"`
+	EBMLMaxSizeLength  uint8  `ebml:"42f3"`
+	DocType            string `ebml:"4282"`
+	DocTypeVersion     uint8  `ebml:"4287"`
+	DocTypeReadVersion uint8  `ebml:"4285"`
+}
 
 // Id is a type that identifies an ebml element.
 type Id []byte
@@ -33,6 +63,14 @@ func NewId(x uint32) Id {
 	}
 	id[0] = byte(x)
 	return id
+}
+
+func NewIdFromString(s string) (Id, error) {
+	x, err := strconv.ParseUint(s, 16, 64)
+	if err != nil {
+		return nil, err
+	}
+	return NewId(uint32(x)), nil
 }
 
 // Format returns

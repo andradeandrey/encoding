@@ -1,10 +1,13 @@
-// Copyright (c) 2013, Emery Hemingway.
-// See the LICENSE file for terms and conditions.
+// Copyright © 2013 Emery Hemingway
+// Released under the terms of the GNU Public License version 3
 
 package ebml
 
 import (
+	"bytes"
+	"errors"
 	"io"
+	"reflect"
 )
 
 // An Encoder writes EBML data to an output stream.
@@ -18,18 +21,54 @@ func NewEncoder(w io.Writer) *Encoder {
 	return &Encoder{w: w}
 }
 
-// Encode writes the EBML binary encoding of v to the stream.
-func (enc *Encoder) Encode(v interface{}) error {
+// Encode writes the EBML binary encoding of v to an Encoder stream.
+func (enc *Encoder) Encode(element interface{}) (err error) {
 	if enc.err != nil {
 		return enc.err
 	}
-	e := &encodeState{w: enc.w}
-	err := e.marshal(v)
+
+	v := reflect.ValueOf(element)
+
+	var id Id
+	t := reflect.TypeOf(element)
+	if f, ok := t.FieldByName("EbmlId"); ok {
+		id = v.FieldByIndex(f.Index).Interface().(Id)
+		if id == nil {
+			id, err = NewIdFromString(f.Tag.Get("ebml"))
+			if err != nil {
+				return
+			}
+		}
+	} else {
+		return errors.New("cannot resolve EBML Id for " + t.Name())
+	}
+
+	E, err := marshal(id, v)
 	if err != nil {
-		enc.err = err
+		return err
+	}
+
+	_, err = io.Copy(enc.w, E)
+	if err != nil {
 		return err
 	}
 	return nil
+}
+
+// Marshal returns an EBML representation of element.
+//
+// Marshal first determines the Id of element from the field named 'EbmlId',
+// then recursively traverses element. Any exported struct field of element
+// with an `ebml` tag will be including in marshalling, with the exception
+// of fields tagged with `ebml:"-"`.
+//
+// The ebml tag should contain a valid EBML id, see the EBML documention for
+// what constitutes a valid id.
+func Marshal(element interface{}) ([]byte, error) {
+	buf := new(bytes.Buffer)
+	encoder := NewEncoder(buf)
+	err := encoder.Encode(element)
+	return buf.Bytes(), err
 }
 
 // A decoder reads data from an EBML stream.
@@ -60,11 +99,14 @@ func (dec *Decoder) Decode(v interface{}) error {
 }
 
 // Marshaler is the interface implemented by objects that
-// can marshal themselves into an EBML stream. If the Marshaler
-// is not a container it should not contain and id and size
-// header. N will be the size used to compute the size of the
-// element that will contain marshaler, and only n bytes will
-// be read from r.
+// can marshal themselves into an EBML stream. r should only
+// contain element data, and not the id and size header of
+// the Marshaler element. n is the length of the data in r
+// and will be used to compute the size of the element above
+// Marshaler. Only n bytes will be read from r.
+//
+// If a struct both implements Marshaler and contains ebml
+// tagged fields, the fields will be ignored.
 type Marshaler interface {
 	MarshalEBML() (r io.Reader, n int64)
 }
@@ -72,8 +114,11 @@ type Marshaler interface {
 // Unmarshaler is the interface implemented by objects that
 // can unmarshal themselves from an EBML stream. The data
 // written to W will contain the data for the element being
-//  unmarshaled, and not an id or size header. n shall be
-// the size of the data at w.
+// unmarshaled, and not an id or size header. n shall be the
+// size of the data at w.
+//
+// If a struct both implements Unmarshaler and contains ebml
+// tagged fields, the fields will be ignored.
 type Unmarshaler interface {
 	UnmarshalEBML(n int64) (w io.Writer)
 }

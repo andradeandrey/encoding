@@ -9,15 +9,15 @@ import (
 
 func main() {
 	for _, s := range os.Args[1:] {
-		b, err := ebml.ParseId(s)
+		id, err := ebml.NewIdFromString(s)
 		if err != nil {
 			fmt.Println(err)
 			continue
 		}
 
-		c := b[0]
+		c := id[0]
 		var good bool
-		switch l := len(b); l {
+		switch l := len(id); l {
 		case 1:
 			good = c <= 0xff && c > 0x80
 		case 2:
@@ -33,8 +33,8 @@ func main() {
 		} else {
 			fmt.Print("Id is bad:  ")
 		}
-		fmt.Printf("% 11x ", b)
-		for _, c := range b {
+		fmt.Printf("% 11x ", id)
+		for _, c := range id {
 			fmt.Printf(".%08b", c)
 		}
 		fmt.Println()

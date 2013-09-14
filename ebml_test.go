@@ -1,3 +1,6 @@
+// Copyright © 2013 Emery Hemingway
+// Released under the terms of the GNU Public License version 3
+
 package ebml
 
 import (
@@ -6,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestMatroskaEBMLHeader(t *testing.T) {
+func TestMarshal(t *testing.T) {
 	var headerA Header
 	headerA.EBMLVersion = 1
 	headerA.EBMLReadVersion = 1
@@ -16,15 +19,12 @@ func TestMatroskaEBMLHeader(t *testing.T) {
 	headerA.DocTypeVersion = 1
 	headerA.DocTypeReadVersion = 1
 
-	dst := new(bytes.Buffer)
-	enc := NewEncoder(dst)
-
-	err := enc.Encode(headerA)
+	b, err := Marshal(headerA)
 	if err != nil {
 		t.Fatal("Marshal:", err)
 	}
 
-	src := bytes.NewReader(dst.Bytes())
+	src := bytes.NewReader(b)
 	dec := NewDecoder(src)
 
 	var headerB Header
@@ -34,6 +34,6 @@ func TestMatroskaEBMLHeader(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(headerA, headerB) {
-		t.Fatalf("Marshal -> Unmarshal: marshaled %v to %x, but unmarshaled %v", headerA, dst.Bytes(), headerB)
+		t.Fatalf("Marshal -> Unmarshal: marshaled %v to %x, but unmarshaled %v", headerA, b, headerB)
 	}
 }

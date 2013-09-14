@@ -1,6 +1,5 @@
-// Copyright (c) 2013, Emery Hemingway. All rights reserved.
-// Actully most of it comes from encoding/json, courtesy of
-// The Go Authors
+// Copyright © 2013 Emery Hemingway
+// Released under the terms of the GNU Public License version 3
 
 package ebml
 
@@ -14,16 +13,78 @@ import (
 	"sync"
 )
 
-type encElement struct {
-	body     []byte
-	elements []*encElement
-	reader   io.Reader
+type EncoderElement interface {
+	io.Reader
+	Size() int64
+}
+
+type encContainerElement struct {
+	id       Id
 	size     int64
+	sizebuf  []byte
+	elements []EncoderElement
+}
+
+func (E *encContainerElement) Append(e EncoderElement) {
+	E.elements = append(E.elements, e)
+	E.size += e.Size()
+}
+
+func (E *encContainerElement) Read(p []byte) (n int, err error) {
+	var l int
+	if len(E.id) > 0 {
+		n = copy(p, E.id)
+		E.id = E.id[n:]
+	}
+
+	if E.size > 0 {
+		E.sizebuf = marshalSize(E.size)
+		E.size = 0
+	}
+	if len(E.sizebuf) > 0 {
+		l = copy(p[n:], E.sizebuf)
+		n += l
+		E.sizebuf = E.sizebuf[l:]
+	}
+
+	for i, e := range E.elements {
+		if e.Size() == 0 {
+			E.elements = E.elements[i:]
+		}
+		if len(p) == 0 {
+			return
+		}
+
+		l, err = e.Read(p[n:])
+		n += l
+		if err != nil && err != io.EOF {
+			return
+		}
+	}
+	return n, io.EOF
+}
+
+func (E *encContainerElement) Size() (n int64) { return E.size }
+
+type encSimpleElement struct {
+	b []byte
+}
+
+func (e *encSimpleElement) Read(p []byte) (n int, err error) {
+	n = copy(p, e.b)
+	e.b = e.b[n:]
+	if len(e.b) == 0 {
+		err = io.EOF
+	}
+	return
+}
+
+func (e *encSimpleElement) Size() int64 {
+	return int64(len(e.b))
 }
 
 // An UnsupportedTypeError is returned by Marshal when attempting
 // to encode an unsupported value type.
-
 type UnsupportedTypeError struct {
 	Type reflect.Type
 }
@@ -41,12 +102,7 @@ func (e *MarshalerError) Error() string {
 	return "ebml: error marshaling type " + e.Type.String() + ": " + e.Err.Error()
 }
 
-type encodeState struct {
-	w        io.Writer
-	elements []*encElement
-}
-
-func (es *encodeState) marshal(x interface{}) (err error) {
+func marshal(id []byte, v reflect.Value) (E EncoderElement, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(runtime.Error); ok {
@@ -56,53 +112,10 @@ func (es *encodeState) marshal(x interface{}) (err error) {
 		}
 	}()
 
-	v := reflect.ValueOf(x)
 	if v.Kind() == reflect.Ptr {
 		v = v.Elem()
 	}
-	for _, f := range cachedTypeFields(v.Type()) {
-		fv := fieldByIndex(v, f.index)
-
-		if !fv.IsValid() || isEmptyValue(fv) {
-			continue
-		}
-
-		e, err := reflectValue(f.id, fv)
-		if err != nil {
-			return err
-		}
-		// TODO this append can go away and instead increase the
-		// es.elements capacity to the amount of cachedTypeFields,
-		// then have a moving index
-		es.elements = append(es.elements, e)
-	}
-	for _, e := range es.elements {
-		err = es.push(e)
-		if err != nil {
-			return
-		}
-	}
-	return nil
-}
-
-func (es *encodeState) push(e *encElement) (err error) {
-	_, err = es.w.Write(e.body)
-	if err != nil {
-		return
-	}
-	for _, se := range e.elements {
-		err = es.push(se)
-		if err != nil {
-			return
-		}
-	}
-	if e.reader != nil {
-		_, err = io.Copy(es.w, e.reader)
-		if err != nil {
-			return
-		}
-	}
-	return nil
+	return reflectValue(id, v)
 }
 
 func isEmptyValue(v reflect.Value) bool {
@@ -115,72 +128,30 @@ func isEmptyValue(v reflect.Value) bool {
 	return false
 }
 
-func reflectValue(id []byte, v reflect.Value) (*encElement, error) {
+func reflectValue(id []byte, v reflect.Value) (EncoderElement, error) {
 	if id == nil {
-		panic(fmt.Sprintf("nil id for value %v", v.Type()))
+		panic("nil id for value " + v.Type().Name())
 	}
-
-	/*m, ok := v.Interface().(Marshaler)
-	if !ok {
-		// v dosen't match the interface. Check against *v too.
-		if v.Kind() != reflect.Ptr && v.CanAddr() {
-			m, ok = v.Addr().Interface().(Marshaler)
-			if ok {
-				v = v.Addr()
-			}
-		}
-	}
-	if ok && (v.Kind() != reflect.Ptr || !v.IsNil()) {
-		r, size := m.MarshalEBML()
-		return &encElement{reader: r, size: size}, nil
-	}*/
-
 	switch v.Kind() {
 	case reflect.Struct:
-		var children []*encElement
-		var size int64
-		for _, f := range cachedTypeFields(v.Type()) {
-			fv := fieldByIndex(v, f.index)
-			if !fv.IsValid() || isEmptyValue(fv) {
-				continue
-			}
-
-			child, err := reflectValue(f.id, fv)
-			if err != nil {
-				return nil, &MarshalerError{v.Type(), err}
-			}
-			if child == nil {
-				continue
-			}
-			children = append(children, child)
-			size += child.size
-		}
-
-		sz := MarshalSize(size)
-		l := len(id) + len(sz)
-		b := make([]byte, l)
-		p := copy(b, id)
-		copy(b[p:], sz)
-		size += int64(l)
-		return &encElement{body: b, elements: children, size: size}, nil
+		return marshalStruct(id, v)
 
 	case reflect.Slice:
 		if v.IsNil() || v.Len() == 0 {
 			return nil, nil
 		}
-		var size int64
-		children := make([]*encElement, v.Len())
+		children := make([]EncoderElement, 0, v.Len())
 		for i := 0; i < v.Len(); i++ {
 			child, err := reflectValue(id, v.Index(i))
 			if err != nil {
 				return nil, &MarshalerError{v.Type(), err}
 			}
 			children[i] = child
-			size += child.size
 		}
 		// in the case of the slice, do not note the Id, nor marshal the size,
 		// slice don't represent containers, only structs do.
-		return &encElement{elements: children, size: size}, nil
+		//return &encContainerElement{id: id, elements: children}, nil
+		return nil, nil
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		x := v.Int()
@@ -194,12 +165,90 @@ func reflectValue(id []byte, v reflect.Value) (*encElement, error) {
 		return marshalString(id, v.String()), nil
 
 	case reflect.Interface, reflect.Ptr:
-		if v.IsNil() {
-			return nil, nil
-		}
+		/*
+			m, ok := v.Interface().(Marshaler)
+			if !ok {
+				// v dosen't match the interface. Check against *v too.
+				if v.Kind() != reflect.Ptr && v.CanAddr() {
+					m, ok = v.Addr().Interface().(Marshaler)
+					if ok {
+						v = v.Addr()
+					}
+				}
+			}
+			if ok && (v.Kind() != reflect.Ptr || !v.IsNil()) {
+				// BAD, BAD
+				continue
+					fmt.Printf("got to this bullshit at id %x\n", id)
+					r, size := m.MarshalEBML()
+					sb := MarshalSize(size)
+					l := len(id) + len(sb)
+					header := make([]byte, l)
+					size += int64(l)
+
+					l = copy(header, id)
+					copy(header[l:], sb)
+					return &encElement{body: header, reader: r, size: size}, nil
+			}
+		*/
+
+		//if v.IsNil() {
+		//	return nil, nil
+		//}
 		return reflectValue(id, v.Elem())
 	}
 	return nil, &UnsupportedTypeError{v.Type()}
+}
+
+func marshalStruct(id []byte, v reflect.Value) (EncoderElement, error) {
+	//fmt.Printf("at marshalStruct for id %x\n", id)
+	//defer fmt.Printf("exited from  marshalStruct for id %x\n", id)
+	/*
+		m, ok := v.Interface().(Marshaler)
+		if !ok {
+			// v dosen't match the interface. Check against *v too.
+			if v.Kind() != reflect.Ptr && v.CanAddr() {
+				m, ok = v.Addr().Interface().(Marshaler)
+				if ok {
+					v = v.Addr()
+				}
+			}
+		}
+		if ok && (v.Kind() != reflect.Ptr || !v.IsNil()) {
+			// BROKEN
+			continue
+
+			r, n := m.MarshalEBML()
+			sb := MarshalSize(n)
+			l := len(id) + len(sb)
+			header := make([]byte, l)
+			size := int64(l) + n
+
+			l = copy(header, id)
+			copy(header[l:], sb)
+			//return &encElement{body: header, reader: &io.LimitedReader{r, n}, size: size}, nil
+		}
+	*/
+
+	E := &encContainerElement{id: id}
+	for _, f := range cachedTypeFields(v.Type()) {
+		fv := fieldByIndex(v, f.index)
+		if !fv.IsValid() || isEmptyValue(fv) {
+			continue
+		}
+		e, err := reflectValue(f.id, fv)
+		if err != nil {
+			return nil, &MarshalerError{v.Type(), err}
+		}
+		if e == nil {
+			continue
+		}
+		E.Append(e)
+	}
+	if len(E.elements) == 0 {
+		return nil, nil
+	}
+	return E, nil
 }
 
 func fieldByIndex(v reflect.Value, index []int) reflect.Value {
@@ -260,7 +309,7 @@ const (
 
 // MarshalSize returns the EBML variable width representation
 // of an element's size
-func MarshalSize(x int64) []byte {
+func marshalSize(x int64) []byte {
 	var s int
 	var m byte
 
@@ -305,7 +354,7 @@ func MarshalSize(x int64) []byte {
 	return b
 }
 
-func marshalInt(id []byte, x int64) *encElement {
+func marshalInt(id Id, x int64) EncoderElement {
 	var xl int
 	switch {
 	case x < 0x8F, x > -0x8F:
@@ -333,16 +382,17 @@ func marshalInt(id []byte, x int64) *encElement {
 	p++
 
 	i := l - 1
+
 	b[i] = byte(x)
 	for i > p {
 		x >>= 8
 		b[i] = byte(x)
 		i--
 	}
-	return &encElement{body: b, size: int64(len(b))}
+	return &encSimpleElement{b}
 }
 
-func marshalUint(id []byte, x uint64) *encElement {
+func marshalUint(id []byte, x uint64) EncoderElement {
 	var xl int
 	switch {
 	case x < 0xFF:
@@ -376,18 +426,18 @@ func marshalUint(id []byte, x uint64) *encElement {
 		b[i] = byte(x)
 		i--
 	}
-	return &encElement{body: b, size: int64(len(b))}
+	return &encSimpleElement{b}
 }
 
-func marshalString(id []byte, s string) *encElement {
+func marshalString(id []byte, s string) EncoderElement {
 	sb := []byte(s)
 	l := len(sb)
-	sz := MarshalSize(int64(l))
+	sz := marshalSize(int64(l))
 	b := make([]byte, len(id)+len(sz)+l)
 	n := copy(b, id)
 	n += copy(b[n:], sz)
 	copy(b[n:], sb)
-	return &encElement{body: b, size: int64(len(b))}
+	return &encSimpleElement{b}
 }
 
 // A field represents a single field found in a struct.
@@ -426,6 +476,9 @@ func typeFields(t reflect.Type) []field {
 			// Scan f.typ for fields to include.
 			for i := 0; i < f.typ.NumField(); i++ {
 				sf := f.typ.Field(i)
+				if sf.Name == "EbmlId" {
+					continue
+				}
 				tag := sf.Tag.Get("ebml")
 				if tag == "" {
 					continue
@@ -439,10 +492,10 @@ func typeFields(t reflect.Type) []field {
 				index[len(f.index)] = i
 
 				ft := sf.Type
-				if ft.Kind() == reflect.Ptr {
-					// Follow pointer
-					ft = ft.Elem()
-				}
+				//if ft.Kind() == reflect.Ptr {
+				//	// Follow pointer
+				//	ft = ft.Elem()
+				//}
 
 				// Record found field and index sequence.
 				fields = append(fields, field{id, index, ft})
@@ -488,5 +541,3 @@ func cachedTypeFields(t reflect.Type) []field {
 	fieldCache.Unlock()
 	return f
 }
-
-const singletonField = 0
