@@ -5,7 +5,6 @@ package ebml
 
 import (
 	"bytes"
-	"errors"
 	"io"
 	"reflect"
 )
@@ -28,31 +27,13 @@ func (enc *Encoder) Encode(element interface{}) (err error) {
 	}
 
 	v := reflect.ValueOf(element)
+	id := getId(v)
 
-	var id Id
-	t := reflect.TypeOf(element)
-	if f, ok := t.FieldByName("EbmlId"); ok {
-		id = v.FieldByIndex(f.Index).Interface().(Id)
-		if id == nil {
-			id, err = NewIdFromString(f.Tag.Get("ebml"))
-			if err != nil {
-				return
-			}
-		}
-	} else {
-		return errors.New("cannot resolve EBML Id for " + t.Name())
+	e, err := marshal(id, v)
+	if err == nil {
+		_, err = e.WriteTo(enc.w)
 	}
-
-	E, err := marshal(id, v)
-	if err != nil {
-		return err
-	}
-
-	_, err = io.Copy(enc.w, E)
-	if err != nil {
-		return err
-	}
-	return nil
+	return
 }
 
 // Marshal returns an EBML representation of element.
@@ -71,56 +52,44 @@ func Marshal(element interface{}) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-// A decoder reads data from an EBML stream.
-type Decoder struct {
-	r   io.ReadSeeker
-	err error
-}
-
-// NewDecoder returns as new decoder that reads from r.
-func NewDecoder(r io.ReadSeeker) *Decoder {
-	return &Decoder{r: r}
-}
-
-// Decode decodes EBML elements into v, where v
-// is a struct containing tagged fields.
-// See ebml.Header for an example.
-func (dec *Decoder) Decode(v interface{}) error {
-	if dec.err != nil {
-		return dec.err
-	}
-	d := decodeState{r: dec.r}
-	err := d.unmarshal(v)
-	if err != nil {
-		dec.err = err
-		return err
-	}
-	return nil
+// BUG(Emery): no documentation here
+func Unmarshal(data []byte, element interface{}) error {
+	return NewDecoder(bytes.NewReader(data)).Decode(element)
 }
 
 // Marshaler is the interface implemented by objects that
-// can marshal themselves into an EBML stream. r should only
-// contain element data, and not the id and size header of
-// the Marshaler element. n is the length of the data in r
-// and will be used to compute the size of the element above
-// Marshaler. Only n bytes will be read from r.
+// can marshal themselves into an EBML stream. The WriterTo
+// should only Write element data, and not the id and size
+// header of the element. size is the length of the data that
+// shall be written and is used to build the element header
+// and compute the size of the parent element before it is
+// writen to an EBML stream.
 //
 // If a struct both implements Marshaler and contains ebml
-// tagged fields, the fields will be ignored.
+// tagged fields, the fields will be ignored. This implies
+// if a Marshaler is an embedded field, the parent struct
+// will inherit it's interface, and the marshaler will take
+// the place of the parent in the encoder.
 type Marshaler interface {
-	MarshalEBML() (r io.Reader, n int64)
+	// BUG(Emery): an embedded Marshaler will trample on a struct
+	MarshalEBML() (wt io.WriterTo, size int64)
 }
 
 // Unmarshaler is the interface implemented by objects that
 // can unmarshal themselves from an EBML stream. The data
-// written to W will contain the data for the element being
-// unmarshaled, and not an id or size header. n shall be the
-// size of the data at w.
+// read into ReaderFrom will contain the data for the element
+// being unmarshaled, and not an id or size header. n shall be
+// the size of the element data, but an Unmarshaler does not
+// need use this number to limit the length of data that is read.
 //
 // If a struct both implements Unmarshaler and contains ebml
-// tagged fields, the fields will be ignored.
+// tagged fields, the fields will be ignored. This implies
+// that if an Unmarshaler is an embedded field, the parent
+// struct will inherit it's interface, and the marshaler will
+// take the place of the parent in the decoder.
 type Unmarshaler interface {
-	UnmarshalEBML(n int64) (w io.Writer)
+	// BUG(Emery): an embedded Unmarshaler will trample on a struct
+	UnmarshalEBML(n int64) io.ReaderFrom
 }
 
 // MarshalUnmarshaler is an interface that
