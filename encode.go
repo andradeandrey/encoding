@@ -7,13 +7,11 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"runtime"
-	"sync"
 )
 
 var indent string
 
-type EncoderElement interface {
+type encoder interface {
 	io.WriterTo
 	Size() int64
 }
@@ -23,10 +21,10 @@ type containerElement struct {
 	id       Id
 	size     int64
 	header   []byte
-	elements []EncoderElement
+	elements []encoder
 }
 
-func (ce *containerElement) Append(e EncoderElement) {
+func (ce *containerElement) Append(e encoder) {
 	ce.elements = append(ce.elements, e)
 	ce.size += e.Size()
 }
@@ -52,7 +50,7 @@ func (ce *containerElement) WriteTo(w io.Writer) (n int64, err error) {
 		nn, err = e.WriteTo(w)
 		n += nn
 		if err != nil {
-			return
+			break
 		}
 	}
 	return
@@ -66,9 +64,9 @@ func (b simpleElement) WriteTo(w io.Writer) (int64, error) {
 	return int64(n), err
 }
 
-// sliceElement is a EncoderElement for holding groups of elements, such as a group
+// sliceElement is a encoder for holding groups of elements, such as a group
 // elements of the same type that occur more than once in a container.
-type sliceElement []EncoderElement
+type sliceElement []encoder
 
 func (se sliceElement) Size() (n int64) {
 	for _, e := range se {
@@ -111,39 +109,8 @@ func (me *marshalerElement) WriteTo(w io.Writer) (n int64, err error) {
 	return
 }
 
-// An UnsupportedTypeError is returned by Marshal when attempting
-// to encode an unsupported value type.
-type UnsupportedTypeError struct {
-	Type reflect.Type
-}
-
-func (e *UnsupportedTypeError) Error() string {
-	return "ebml: unsupported type: " + e.Type.String()
-}
-
-type MarshalerError struct {
-	Type reflect.Type
-	Err  error
-}
-
-func (e *MarshalerError) Error() string {
-	return "ebml: error marshaling type " + e.Type.String() + ": " + e.Err.Error()
-}
-
-func marshal(id Id, v reflect.Value) (E EncoderElement, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			if _, ok := r.(runtime.Error); ok {
-				panic(r)
-			}
-			err = r.(error)
-		}
-	}()
-
-	if v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	return reflectValue(id, v)
+func unsupportedTypeError(typ reflect.Type) {
+	encError("unsupported type: " + typ.String())
 }
 
 func isEmptyValue(v reflect.Value) bool {
@@ -156,81 +123,43 @@ func isEmptyValue(v reflect.Value) bool {
 	return false
 }
 
-func reflectValue(id Id, v reflect.Value) (EncoderElement, error) {
+func newEncoder(id Id, v reflect.Value) encoder {
 	if m, ok := v.Interface().(Marshaler); ok {
 		wt, size := m.MarshalEBML()
 		header := append(id.Bytes(), marshalSize(size)...)
-		return &marshalerElement{id, size, header, wt}, nil
+		return &marshalerElement{id, size, header, wt}
 	}
 
 	switch v.Kind() {
 	case reflect.Struct:
-		return marshalStruct(id, v)
+		return newStructEncoder(id, v)
 
 	case reflect.Slice:
 		if v.IsNil() || v.Len() == 0 {
-			return nil, nil
+			return nil
 		}
 		s := make(sliceElement, v.Len())
 		for i := 0; i < v.Len(); i++ {
-			child, err := reflectValue(id, v.Index(i))
-			if err != nil {
-				return nil, &MarshalerError{v.Type(), err}
-			}
-			s[i] = child
+			s[i] = newEncoder(id, v.Index(i))
 		}
-		return s, nil
+		return s
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		x := v.Int()
-		return marshalInt(id, x), nil
+		return marshalInt(id, x)
 
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		x := v.Uint()
-		return marshalUint(id, x), nil
+		return marshalUint(id, x)
 
 	case reflect.String:
-		return marshalString(id, v.String()), nil
+		return marshalString(id, v.String())
 
 	case reflect.Interface, reflect.Ptr:
-		return reflectValue(id, v.Elem())
+		return newEncoder(id, v.Elem())
 	}
-	return nil, &UnsupportedTypeError{v.Type()}
-}
-
-func marshalStruct(id Id, v reflect.Value) (EncoderElement, error) {
-	E := &containerElement{id: id}
-	for _, f := range cachedTypeFields(v.Type()) {
-		fv := fieldByIndex(v, f.index)
-		if !fv.IsValid() || isEmptyValue(fv) {
-			continue
-		}
-		e, err := reflectValue(f.id, fv)
-		if err != nil {
-			return nil, &MarshalerError{v.Type(), err}
-		}
-		if e == nil {
-			continue
-		}
-		E.Append(e)
-	}
-	if len(E.elements) == 0 {
-		return nil, nil
-	}
-	return E, nil
-}
-
-func fieldByIndex(v reflect.Value, index []int) reflect.Value {
-	for _, i := range index {
-		if v.Kind() == reflect.Ptr {
-			if v.IsNil() {
-				return reflect.Value{}
-			}
-			v = v.Elem()
-		}
-		v = v.Field(i)
-	}
-	return v
+	unsupportedTypeError(v.Type())
+	return nil
 }
 
 const (
@@ -277,8 +206,7 @@ func marshalSize(x int64) []byte {
 		s = 8
 		m = 0x01
 	default:
-		panic(fmt.Sprintf("%x overflows element size", x))
-
+		encError(fmt.Sprintf("element size %d overflows", x))
 	}
 	b := make([]byte, s)
 	s--
@@ -291,7 +219,7 @@ func marshalSize(x int64) []byte {
 	return b
 }
 
-func marshalInt(id Id, x int64) EncoderElement {
+func marshalInt(id Id, x int64) encoder {
 	var xl int
 	switch {
 	case x < 0x8F, x > -0x8F:
@@ -330,7 +258,7 @@ func marshalInt(id Id, x int64) EncoderElement {
 	return b
 }
 
-func marshalUint(id Id, x uint64) EncoderElement {
+func marshalUint(id Id, x uint64) encoder {
 	var xl int
 	switch {
 	case x < 0xFF:
@@ -368,7 +296,7 @@ func marshalUint(id Id, x uint64) EncoderElement {
 	return b
 }
 
-func marshalString(id Id, s string) EncoderElement {
+func marshalString(id Id, s string) encoder {
 	sb := []byte(s)
 	l := len(sb)
 	sz := marshalSize(int64(l))
@@ -378,106 +306,4 @@ func marshalString(id Id, s string) EncoderElement {
 	n += copy(b[n:], sz)
 	copy(b[n:], sb)
 	return b
-}
-
-// A field represents a single field found in a struct.
-type field struct {
-	id    Id
-	index []int
-	typ   reflect.Type
-}
-
-// typeFields returns a list of fields that EBML should recognize for the given type.
-func typeFields(t reflect.Type) []field {
-	// Anonymous fields to explore at the current level and the next.
-	current := []field{}
-	next := []field{{typ: t}}
-
-	// Count of queued names for current level and the next.
-	count := map[reflect.Type]int{}
-	nextCount := map[reflect.Type]int{}
-
-	// Types already visited at an earlier level.
-	visited := map[reflect.Type]bool{}
-
-	// Fields found.
-	var fields []field
-
-	for len(next) > 0 {
-		current, next = next, current[:0]
-		count, nextCount = nextCount, map[reflect.Type]int{}
-
-		for _, f := range current {
-			if visited[f.typ] {
-				continue
-			}
-			visited[f.typ] = true
-
-			// Scan f.typ for fields to include.
-			for i := 0; i < f.typ.NumField(); i++ {
-				sf := f.typ.Field(i)
-				if sf.Name == "EbmlId" {
-					continue
-				}
-				tag := sf.Tag.Get("ebml")
-				if tag == "" {
-					continue
-				}
-				id, err := NewIdFromString(tag)
-				if err != nil {
-					panic(err.Error())
-				}
-				index := make([]int, len(f.index)+1)
-				copy(index, f.index)
-				index[len(f.index)] = i
-
-				ft := sf.Type
-				//if ft.Kind() == reflect.Ptr {
-				//	// Follow pointer
-				//	ft = ft.Elem()
-				//}
-
-				// Record found field and index sequence.
-				fields = append(fields, field{id, index, ft})
-				if count[f.typ] > 1 {
-					// If there were multipe instances, add a second,
-					// so that the annihilation code will see a dulicate.
-					// It only cares about the distinction between 1 or 2,
-					// so don't bother generating and more copies.
-					fields = append(fields, fields[len(fields)-1])
-				}
-			}
-		}
-	}
-	return fields
-}
-
-var fieldCache struct {
-	sync.RWMutex
-	m map[reflect.Type][]field
-}
-
-// cachedTypeFields is like typeFields but uses a cache to avoid repeated work.
-func cachedTypeFields(t reflect.Type) []field {
-	fieldCache.RLock()
-	f := fieldCache.m[t]
-	fieldCache.RUnlock()
-	if f != nil {
-		return f
-	}
-
-	// Compute fields without lock.
-	// Might dulpicate effort but won't hold other computations back.
-	f = typeFields(t)
-	if f == nil {
-		f = []field{}
-	}
-
-	fieldCache.Lock()
-	if fieldCache.m == nil {
-		fieldCache.m = map[reflect.Type][]field{}
-	}
-	fieldCache.m[t] = f
-	fieldCache.Unlock()
-	return f
 }

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"fmt"
 	"git.gitorious.org/go-ebml/ebml.git"
+	"reflect"
 )
 
 func ExampleHeader() {
@@ -19,24 +20,16 @@ func ExampleHeader() {
 	headerA.DocTypeVersion = 1
 	headerA.DocTypeReadVersion = 1
 
-	b, err := ebml.Marshal(headerA)
-	if err != nil {
-		return
-	}
+	b, _ := ebml.Marshal(headerA)
 
 	src := bytes.NewReader(b)
 	dec := ebml.NewDecoder(src)
 
-	err = dec.Decode(&headerB)
-	if err != nil {
-		return
-	}
+	dec.Decode(&headerB)
 
-	fmt.Printf("%v\n%x\n%v", headerA, b, headerB)
+	fmt.Printf("%x DeepEqual: %v", b, reflect.DeepEqual(headerA, headerB))
 	// Output:
-	// {0 1 1 1 1 matroska 1 1}
-	// 1a45dfa3a34286810142f7810142f2810142f381014282886d6174726f736b614287810142858101
-	// {0 1 1 1 1 matroska 1 1}
+	// 1a45dfa3a34286810142f7810142f2810142f381014282886d6174726f736b614287810142858101 DeepEqual: true
 }
 
 func ExampleMarshal() {

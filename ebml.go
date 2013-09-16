@@ -1,8 +1,10 @@
 // Copyright © 2013 Emery Hemingway
 // Released under the terms of the GNU Public License version 3
 
-// Package ebml marshals and unmarshals Go structs to and from
-// the Exensible Binary Markup Langauge.
+/*
+Package ebml marshals and unmarshals Go structs to and from
+the Exensible Binary Markup Langauge.
+*/
 package ebml
 
 import (

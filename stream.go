@@ -5,6 +5,7 @@ package ebml
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"reflect"
 )
@@ -26,13 +27,63 @@ func (enc *Encoder) Encode(element interface{}) (err error) {
 		return enc.err
 	}
 
+	// encoding doesn't use error internally, but panics if there is a
+	// problem and then unwinds up to here.
+	defer func() {
+		if e := recover(); e != nil {
+			err = e.(ebmlError)
+			enc.err = err
+			return
+		}
+	}()
+
 	v := reflect.ValueOf(element)
 	id := getId(v)
 
-	e, err := marshal(id, v)
-	if err == nil {
-		_, err = e.WriteTo(enc.w)
+	elem := newEncoder(id, v)
+	if elem != nil {
+		_, err = elem.WriteTo(enc.w)
 	}
+	return
+}
+
+// A Decoder decoders EBML data from a ReadSeeker
+type Decoder struct {
+	r   io.ReadSeeker
+	buf []byte // this is a resuable buffer for decoding
+	err error
+}
+
+// NewDecoder returns a new decoder that decodes from r.
+func NewDecoder(r io.ReadSeeker) *Decoder {
+	return &Decoder{r: r, buf: make([]byte, 8)}
+}
+
+// Decode decodes a EBML stream into v.
+func (d *Decoder) Decode(element interface{}) (err error) {
+	if d.err != nil {
+		return d.err
+	}
+
+	// decoding doesn't use error internally, but panics if there is a
+	// problem and then unwinds up to here.
+	defer func() {
+		if e := recover(); e != nil {
+			err = e.(ebmlError)
+			d.err = err
+			return
+		}
+	}()
+
+	v := reflect.ValueOf(element)
+	id := getId(v)
+	if n, curId := readIdFrom(d.r); id != curId {
+		d.r.Seek(int64(-n), 0)
+		return fmt.Errorf("ebml: read stream positioned at %s not %s", id, curId)
+	}
+	_, size := readSizeFrom(d.r)
+
+	decodeValue(d, id, size, v)
 	return
 }
 
@@ -52,7 +103,15 @@ func Marshal(element interface{}) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-// BUG(Emery): no documentation here
+// Unmarshal unmarshals EBML data into element.
+//
+// Unmarshal first determines the Id of element from the field named 'EbmlId',
+// then recursively traverses element. Any exported struct field of element
+// with an `ebml` tag will be including in unmarshalling, with the exception
+// of fields tagged with `ebml:"-"`.
+//
+// The ebml tag should contain a valid EBML id, see the EBML documention for
+// what constitutes a valid id.
 func Unmarshal(data []byte, element interface{}) error {
 	return NewDecoder(bytes.NewReader(data)).Decode(element)
 }
@@ -79,8 +138,8 @@ type Marshaler interface {
 // can unmarshal themselves from an EBML stream. The data
 // read into ReaderFrom will contain the data for the element
 // being unmarshaled, and not an id or size header. n shall be
-// the size of the element data, but an Unmarshaler does not
-// need use this number to limit the length of data that is read.
+// the size of the element data, and it is the resposibility of
+// the unmarshaler to not read beyond n.
 //
 // If a struct both implements Unmarshaler and contains ebml
 // tagged fields, the fields will be ignored. This implies
