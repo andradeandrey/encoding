@@ -307,3 +307,19 @@ func marshalString(id Id, s string) encoder {
 	copy(b[n:], sb)
 	return b
 }
+
+func newStructEncoder(id Id, v reflect.Value) encoder {
+	e := &containerElement{id: id}
+	for fid, i := range cachedFieldIdMap(v.Type()) {
+		fv := v.Field(i)
+		if !fv.IsValid() || isEmptyValue(fv) {
+			continue
+		}
+		fe := newEncoder(fid, fv)
+		if e != nil {
+			e.Append(fe)
+		}
+	}
+	return e
+}
+

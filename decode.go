@@ -4,16 +4,13 @@
 package ebml
 
 import (
-	//"bytes"
-	//"errors"
 	"fmt"
 	"io"
 	"reflect"
-	//"unsafe"
 )
 
 // readIdFrom reads an Id from a Reader and returns the number of bytes read and the Id
-func readIdFrom(r io.Reader) (int, Id) {
+func readIdFrom(r io.ReadSeeker) (int, Id) {
 	buf := make([]byte, 8)
 	n, err := r.Read(buf[:1])
 	if err != nil {
@@ -31,7 +28,11 @@ func readIdFrom(r io.Reader) (int, Id) {
 	case id >= 0x10:
 		buf = buf[:3]
 	default:
-		encError("positioned at an invalid Id or EBMLMaxIDLength > 4")
+		p, err := r.Seek(-1, 1)
+		if err != nil {
+			encError(err.Error())
+		}
+		encError(fmt.Sprintf("invalid Id at reader position %x or EBMLMaxIDLength > 4, read byte %x", p, buf[0]))
 	}
 	var nn int
 	nn, err = r.Read(buf)
@@ -96,20 +97,45 @@ func readSizeFrom(r io.Reader) (int, int64) {
 
 type decoderFunc func(d *Decoder, id Id, size int64, v reflect.Value)
 
+/* Sadly this using this table results in 'initialization loops' during building
+var decoderFuncTable = [...]decoderFunc{
+	reflect.Uint:   decodeUint,
+	reflect.Uint8:  decodeUint,
+	reflect.Uint16: decodeUint,
+	reflect.Uint32: decodeUint,
+	reflect.Uint64: decodeUint,
+	reflect.Slice:  decodeSlice,
+	reflect.String: decodeString,
+	reflect.Struct: decodeStruct,
+}
+*/
+
 func decodeValue(d *Decoder, id Id, size int64, v reflect.Value) {
 	if um, ok := v.Interface().(Unmarshaler); ok {
+		if v.Kind() == reflect.Ptr && v.IsNil() {
+			v.Set(reflect.New(v.Type().Elem()))
+			um = v.Interface().(Unmarshaler)
+		}
+
+		fmt.Println("made an unmashaler out of", id, v)
 		rf := um.UnmarshalEBML(size)
-		rf.ReadFrom(d.r)
+		r := io.LimitReader(d.r, size)
+		rf.ReadFrom(r)
+		return
 	}
 
 	// If we got an interface or a pointer, dereference it.
-	for v.Kind() == reflect.Interface || v.Kind() == reflect.Ptr {
+	for v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			v.Set(reflect.New(v.Type().Elem()))
+		}
 		v = v.Elem()
 	}
 
-	// I wanted to use an array of functions indexed by reflect.Kind, 
-	// but kept getting initialization loop build errors
+	// look up the function to decode to value v
 	var fn decoderFunc
+	// I wanted to use an array of functions indexed by reflect.Kind,
+	// but kept getting initialization loop build errors
 	switch v.Kind() {
 	case reflect.Uint:
 		fn = decodeUint
@@ -121,6 +147,8 @@ func decodeValue(d *Decoder, id Id, size int64, v reflect.Value) {
 		fn = decodeUint
 	case reflect.Uint64:
 		fn = decodeUint
+	case reflect.Slice:
+		fn = decodeSlice
 	case reflect.String:
 		fn = decodeString
 	case reflect.Struct:
@@ -137,6 +165,9 @@ func decodeUint(d *Decoder, id Id, size int64, v reflect.Value) {
 	for _, c := range d.buf[1:] {
 		x += uint64(c)
 	}
+	if x == 0 {
+		return
+	}
 	if v.OverflowUint(x) {
 		decError(fmt.Sprintf("element %s value %d overflows %s", id, x, v.Type()))
 	}
@@ -144,6 +175,23 @@ func decodeUint(d *Decoder, id Id, size int64, v reflect.Value) {
 	if err != nil {
 		decError(err.Error())
 	}
+}
+
+func decodeSlice(d *Decoder, id Id, size int64, v reflect.Value) {
+	// TODO(Emery): would be nice to use reflect.Append()
+	n := v.Len()
+	if n >= v.Cap() {
+		newcap := v.Cap() + v.Cap()/2
+		if newcap < 4 {
+			newcap = 4
+		}
+		newv := reflect.MakeSlice(v.Type(), n+1, newcap)
+		reflect.Copy(newv, v)
+		v.Set(newv)
+	} else {
+		v.SetLen(n + 1)
+	}
+	decodeValue(d, id, size, v.Index(n))
 }
 
 func decodeString(d *Decoder, id Id, size int64, v reflect.Value) {
@@ -157,9 +205,10 @@ func decodeString(d *Decoder, id Id, size int64, v reflect.Value) {
 
 func decodeStruct(d *Decoder, id Id, size int64, v reflect.Value) {
 	t := v.Type()
-	// get Id -> field mappings
+	// get Id to field mappings
 	idField := cachedFieldIdMap(t)
-	fieldFunc := cachedFieldDecoderTable(t)
+	// BUG(Emery): not caching decoder funtions for struct fields is suboptimal
+	//fieldFunc := cachedFieldDecoderTable(t)
 
 	var n int
 	var subId Id
@@ -176,8 +225,18 @@ func decodeStruct(d *Decoder, id Id, size int64, v reflect.Value) {
 		if n, ok = idField[subId]; !ok {
 			continue
 		}
-		// use the cached decoder funtion for field
-		fieldFunc[n](d, subId, subSize, v.Field(n))
+
+		decodeValue(d, subId, subSize, v.Field(n))
+		/*
+			subV = v.Field(n)
+			// Derefence pointer
+			for subV.Kind() == reflect.Ptr {
+				subV = subV.Elem()
+			}
+
+			// use the cached decoder funtion for field
+			fieldFunc[n]
+		*/
 		size -= subSize
 	}
 }

@@ -56,6 +56,8 @@ type Decoder struct {
 
 // NewDecoder returns a new decoder that decodes from r.
 func NewDecoder(r io.ReadSeeker) *Decoder {
+	// TODO(Emery): just ask for a io.Reader and try and make it
+	// an io.ReadSeeker
 	return &Decoder{r: r, buf: make([]byte, 8)}
 }
 
@@ -123,12 +125,6 @@ func Unmarshal(data []byte, element interface{}) error {
 // shall be written and is used to build the element header
 // and compute the size of the parent element before it is
 // writen to an EBML stream.
-//
-// If a struct both implements Marshaler and contains ebml
-// tagged fields, the fields will be ignored. This implies
-// if a Marshaler is an embedded field, the parent struct
-// will inherit it's interface, and the marshaler will take
-// the place of the parent in the encoder.
 type Marshaler interface {
 	// BUG(Emery): an embedded Marshaler will trample on a struct
 	MarshalEBML() (wt io.WriterTo, size int64)
@@ -137,23 +133,16 @@ type Marshaler interface {
 // Unmarshaler is the interface implemented by objects that
 // can unmarshal themselves from an EBML stream. The data
 // read into ReaderFrom will contain the data for the element
-// being unmarshaled, and not an id or size header. n shall be
-// the size of the element data, and it is the resposibility of
-// the unmarshaler to not read beyond n.
+// being unmarshaled, and not an id or size header.
 //
-// If a struct both implements Unmarshaler and contains ebml
-// tagged fields, the fields will be ignored. This implies
-// that if an Unmarshaler is an embedded field, the parent
-// struct will inherit it's interface, and the marshaler will
-// take the place of the parent in the decoder.
+// n shall be the size of the element data, and it is not the
+// resposibility of an Unmarshaler to limit reading to n.
+//
+// An Unmarshaler is usually sent to the decoding engine as a nil pointer
+// in a struct and created when a tagged element is encountered, for this 
+// reason the UnmarshalEBML method should behave as if the Unmarshaler is 
+// at a zero value state.
 type Unmarshaler interface {
 	// BUG(Emery): an embedded Unmarshaler will trample on a struct
 	UnmarshalEBML(n int64) io.ReaderFrom
-}
-
-// MarshalUnmarshaler is an interface that
-// combines both the Marshaler and Unmarshaler.
-type MarshalUnmarshaler interface {
-	Marshaler
-	Unmarshaler
 }

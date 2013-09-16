@@ -4,16 +4,15 @@
 package ebml
 
 import (
-	"fmt"
 	"reflect"
 	"sync"
 )
 
 var (
-	fieldIdMap        = make(map[reflect.Type]map[Id]int)
-	fieldIdMutex      sync.RWMutex
-	fieldDecoderMap   = make(map[reflect.Type][]decoderFunc)
-	fieldDecoderMutex sync.RWMutex
+	fieldIdMap   = make(map[reflect.Type]map[Id]int)
+	fieldIdMutex sync.RWMutex
+	//fieldDecoderMap   = make(map[reflect.Type][]decoderFunc)
+	//fieldDecoderMutex sync.RWMutex
 )
 
 // cachedFieldIdMap returns a map that contains Id to field number
@@ -54,6 +53,8 @@ func cachedFieldIdMap(typ reflect.Type) map[Id]int {
 	fieldIdMap[typ] = m
 	return m
 }
+
+/*
 
 // cachedFieldIpDecoderTable returns a slice that contains decoder functions
 // indexed by field number
@@ -100,15 +101,19 @@ func cachedFieldDecoderTable(typ reflect.Type) []decoderFunc {
 			s[i] = decodeUint
 		case reflect.Uint64:
 			s[i] = decodeUint
+		case reflect.Slice:
+			s[i] = decodeSlice
 		case reflect.String:
 			s[i] = decodeString
 		case reflect.Struct:
 			s[i] = decodeStruct
 		default:
-			decError(fmt.Sprintf("cannot decode to %s field %s, %s decoding is unsupported ",
-				typ, f.Name, f.Type))
+			decError(fmt.Sprintf("cannot decode to %s.%s, %s decoding is unsupported ",
+				typ, f.Name, f.Type.Kind()))
 		}
 	}
 	fieldDecoderMap[typ] = s
 	return s
 }
+
+*/
