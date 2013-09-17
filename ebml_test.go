@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/3M3RY/go-ebml"
 	"io"
+	"io/ioutil"
 	"math/rand"
 	"reflect"
 	"testing"
@@ -54,10 +55,6 @@ func ExampleMarshal() {
 	}
 	fmt.Printf("0x%x\n", b)
 
-	err = ebml.Unmarshal(b, DoDad)
-	if err != nil {
-		fmt.Println(err)
-	}
 	// Output:
 	// 0x3f00009442428301117042438568757a6168424483fe971d
 }
@@ -136,7 +133,6 @@ func TestUint(t *testing.T) {
 		}
 
 		err = ebml.Unmarshal(buf, &out)
-		//err = Unmarshal(buf, &out)
 		if err != nil && err != io.EOF {
 			t.Fatalf("marshal int %d: %s\n buf: %x", I, err, buf)
 		}
@@ -144,5 +140,61 @@ func TestUint(t *testing.T) {
 		if !reflect.DeepEqual(in, out) {
 			t.Fatalf("marshal int %d: in=%0.2x out=%0.2x", I, in.I, out.I)
 		}
+	}
+}
+
+type benchTestStruct struct {
+	EbmlId ebml.Id `ebml:"81"`
+	A      uint    `ebml:"4011"`
+	B      int64   `ebml:"200011"`
+	C      int64   `ebml:"10000011"`
+	D      string  `ebml:"800000000"`
+}
+
+func BenchmarkEncoding(b *testing.B) {
+	var test benchTestStruct
+	rand.Seed(time.Now().UnixNano())
+
+	test.A = uint(rand.Int63())
+	test.B = rand.Int63()
+	test.C = 1 - rand.Int63()
+	test.D = "of ships and sails and whether pigs have wings"
+
+	var err error
+	b.ResetTimer()
+	enc := ebml.NewEncoder(ioutil.Discard)
+	for i := 0; i < b.N; i++ {
+		err = enc.Encode(test)
+		if err != nil {
+			b.Fatal(err.Error())
+		}
+	}
+}
+
+func BenchmarkDecoding(b *testing.B) {
+	var control benchTestStruct
+	rand.Seed(time.Now().UnixNano())
+
+	control.A = uint(rand.Int63())
+	control.B = rand.Int63()
+	control.C = 1 - rand.Int63()
+	control.D = "of ships and sails and whether pigs have wings"
+
+	buf, err := ebml.Marshal(control)
+	r := bytes.NewReader(buf)
+	b.ResetTimer()
+
+	dec := ebml.NewDecoder(r)
+	for i := 0; i < b.N; i++ {
+		var test benchTestStruct
+		err = dec.Decode(&test)
+		if err != nil {
+			b.Fatal(err.Error())
+		}
+
+		if !reflect.DeepEqual(control, test) {
+			b.Fatal("not equal")
+		}
+		r.Seek(0, 0)
 	}
 }

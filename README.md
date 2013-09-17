@@ -1,7 +1,6 @@
 Go-EBML
 =======
-
-A marshaler and unmarshaler for [EBML](http://ebml.sourceforge.net/).
+A marshaler/unmarshaler for [EBML](http://ebml.sourceforge.net/).
 
 It's quite simple to use:
 ```go
@@ -18,16 +17,9 @@ func ExampleMarshal() {
 	DoDad.ThingaMabob = "huzah"
 	DoDad.HumDinger = -92387
 
-	b, err := ebml.Marshal(*DoDad)
-	if err != nil {
-		fmt.Println(err)
-	}
+	b, _ := ebml.Marshal(*DoDad)
 	fmt.Printf("0x%x\n", b)
 
-	err = ebml.Unmarshal(b, DoDad)
-	if err != nil {
-		fmt.Println(err)
-	}
 	// Output:
 	// 0x3f00009442428301117042438568757a6168424483fe971d
 }
@@ -47,10 +39,7 @@ func ExampleUnmarshal() {
 		HumDinger   int     `ebml:"4244"`
 	})
 
-	err := ebml.Unmarshal(data, DoDad)
-	if err != nil {
-		fmt.Println(err)
-	}
+	ebml.Unmarshal(data, DoDad)
 	fmt.Printf("%v\n", DoDad)
 	// Output:
 	// &{0 70000 huzah -92387}
@@ -59,9 +48,19 @@ func ExampleUnmarshal() {
 ```
 
 
+Caveats
+-------
+If an EBML DTD specifies a value as an unsigned integer, you must use a uint 
+type. For example: the uint32 8388608 and int -8388608 may encode to identical
+0x800000 24 bit arrays in an EBML stream.
+
+EBML does not have a boolean type, but booleans are commonly defined in DTDs 
+as zero or non-zero usigned integers.
+
+
 Limitations
 -----------
-Default values are not supported yet, as per the EBML RFC:
+Default values are not implemented yet, as they are defined in the EBML RFC:
 > Every non-container MAY be assigned a default value. If so, its
 > value will be added to the interpretation of the EBML data if no
 > element with another value exists in the data.

@@ -32,7 +32,8 @@ func readIdFrom(r io.ReadSeeker) (int, Id) {
 		if err != nil {
 			encError(err.Error())
 		}
-		decError(fmt.Sprintf("invalid Id at reader position %x or EBMLMaxIDLength > 4, read byte %x", p, buf[0]))
+		r.Read(buf)
+		decError(fmt.Sprintf("invalid Id at reader position 0x%x or EBMLMaxIDLength > 4, next 8 bytes 0x%0.2x", p, buf))
 	}
 	var nn int
 	nn, err = r.Read(buf)

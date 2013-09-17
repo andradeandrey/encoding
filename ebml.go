@@ -55,7 +55,7 @@ func (id Id) Bytes() []byte {
 	case id < 0x0800000001:
 		l = 4
 	default:
-		panic("invalid element ID")
+		panic(fmt.Sprintf("invalid element ID %s", id))
 	}
 	b := make([]byte, l)
 	for l > 1 {
