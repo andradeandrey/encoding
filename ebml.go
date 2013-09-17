@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"time"
 )
 
 // Header is a struct for encoding and decoding EBML streams.
@@ -44,16 +45,18 @@ type Id uint64
 func (id Id) Bytes() []byte {
 	var l int
 	switch {
-	case id < 0x81:
-		panic(fmt.Sprintf("invalid element ID %s", id))
-	case id < 0x4001:
+	case id > 0x80 && id < 0xFF:
 		l = 1
-	case id < 0x200001:
+
+	case id > 0x4000 && id < 0x7FFF:
 		l = 2
-	case id < 0x10000001:
+
+	case id > 0x200000 && id < 0x3FFFFF:
 		l = 3
-	case id < 0x0800000001:
+
+	case id > 0x10000000 && id < 0x3FFFFFFF:
 		l = 4
+
 	default:
 		panic(fmt.Sprintf("invalid element ID %s", id))
 	}
@@ -101,3 +104,6 @@ func getId(v reflect.Value) (id Id) {
 	}
 	return
 }
+
+// EBML epoch is the beginning of this millennium
+var epoch = time.Date(2001, time.January, 1, 0, 0, 0, 0, time.UTC)

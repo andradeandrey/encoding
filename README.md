@@ -58,9 +58,11 @@ EBML does not have a boolean type, but booleans are commonly defined in DTDs
 as zero or non-zero usigned integers.
 
 
-Limitations
------------
-Default values are not implemented yet, as they are defined in the EBML RFC:
+Not Implemented
+---------------
+* Floating point values.
+
+* Default values.
 > Every non-container MAY be assigned a default value. If so, its
 > value will be added to the interpretation of the EBML data if no
 > element with another value exists in the data.

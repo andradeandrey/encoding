@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"time"
 )
 
 var indent string
@@ -123,26 +124,22 @@ func isEmptyValue(v reflect.Value) bool {
 	return false
 }
 
-func newEncoder(id Id, v reflect.Value) encoder {
+func encode(id Id, v reflect.Value) encoder {
 	if m, ok := v.Interface().(Marshaler); ok {
 		wt, size := m.MarshalEBML()
 		header := append(id.Bytes(), marshalSize(size)...)
 		return &marshalerElement{id, size, header, wt}
 	}
 
-	switch v.Kind() {
-	case reflect.Struct:
-		return newStructEncoder(id, v)
+	if t, ok := v.Interface().(time.Time); ok {
+		return encodeTime(id, t)
+	}
 
-	case reflect.Slice:
-		if v.IsNil() || v.Len() == 0 {
-			return nil
-		}
-		s := make(sliceElement, v.Len())
-		for i := 0; i < v.Len(); i++ {
-			s[i] = newEncoder(id, v.Index(i))
-		}
-		return s
+	for v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+		v = v.Elem()
+	}
+
+	switch v.Kind() {
 
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		x := v.Int()
@@ -153,10 +150,13 @@ func newEncoder(id Id, v reflect.Value) encoder {
 		return marshalUint(id, x)
 
 	case reflect.String:
-		return marshalString(id, v.String())
+		return encodeString(id, v)
 
-	case reflect.Interface, reflect.Ptr:
-		return newEncoder(id, v.Elem())
+	case reflect.Slice:
+		return encodeSlice(id, v)
+
+	case reflect.Struct:
+		return encodeStruct(id, v)
 	}
 	unsupportedTypeError(v.Type())
 	return nil
@@ -316,8 +316,17 @@ func marshalUint(id Id, x uint64) encoder {
 	return b
 }
 
-func marshalString(id Id, s string) encoder {
-	sb := []byte(s)
+func encodeSlice(id Id, v reflect.Value) encoder {
+	l := v.Len()
+	s := make(sliceElement, l)
+	for i := 0; i < l; i++ {
+		s[i] = encode(id, v.Index(i))
+	}
+	return s
+}
+
+func encodeString(id Id, v reflect.Value) encoder {
+	sb := []byte(v.String())
 	l := len(sb)
 	sz := marshalSize(int64(l))
 	idBuf := id.Bytes()
@@ -328,17 +337,31 @@ func marshalString(id Id, s string) encoder {
 	return b
 }
 
-func newStructEncoder(id Id, v reflect.Value) encoder {
+func encodeStruct(id Id, v reflect.Value) encoder {
 	e := &containerElement{id: id}
 	for fid, i := range cachedFieldIdMap(v.Type()) {
 		fv := v.Field(i)
 		if !fv.IsValid() || isEmptyValue(fv) {
 			continue
 		}
-		fe := newEncoder(fid, fv)
+		fe := encode(fid, fv)
 		if e != nil {
 			e.Append(fe)
 		}
 	}
 	return e
+}
+
+func encodeTime(id Id, t time.Time) encoder {
+	d := t.Sub(epoch) // epoch defined in ebml.go
+
+	idb := id.Bytes()
+	b := make(simpleElement, len(idb)+9)
+	n := copy(b, idb)
+	b[n] = 0x88 // length will be 8
+	for i := len(b) - 1; i > n; i-- {
+		b[i] = byte(d)
+		d >>= 8
+	}
+	return b
 }

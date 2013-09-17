@@ -40,7 +40,7 @@ func (enc *Encoder) Encode(element interface{}) (err error) {
 	v := reflect.ValueOf(element)
 	id := getId(v)
 
-	elem := newEncoder(id, v)
+	elem := encode(id, v)
 	if elem != nil {
 		_, err = elem.WriteTo(enc.w)
 	}
@@ -79,11 +79,11 @@ func (d *Decoder) Decode(element interface{}) (err error) {
 
 	v := reflect.ValueOf(element)
 	id := getId(v)
-	if n, curId := readIdFrom(d.r); id != curId {
+	if n, curId := d.readId(); id != curId {
 		d.r.Seek(int64(-n), 0)
 		return fmt.Errorf("ebml: read stream positioned at element %s not %s", curId, id)
 	}
-	_, size := readSizeFrom(d.r)
+	_, size := d.readSize()
 
 	decodeValue(d, id, size, v)
 	return

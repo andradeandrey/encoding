@@ -7,39 +7,40 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"time"
 )
 
 // readIdFrom reads an Id from a Reader and returns the number of bytes read and the Id
-func readIdFrom(r io.ReadSeeker) (int, Id) {
-	buf := make([]byte, 8)
-	n, err := r.Read(buf[:1])
+func (d *Decoder) readId() (int, Id) {
+	n, err := d.r.Read(d.buf[:1])
 	if err != nil {
-		encError(err.Error())
+		decError(err.Error())
 	}
 
-	id := Id(buf[0])
+	id := Id(d.buf[0])
+	var buf []byte
 	switch {
 	case id >= 0x80:
 		return n, id
 	case id >= 0x40:
-		buf = buf[:1]
+		buf = d.buf[:1]
 	case id >= 0x20:
-		buf = buf[:2]
+		buf = d.buf[:2]
 	case id >= 0x10:
-		buf = buf[:3]
+		buf = d.buf[:3]
 	default:
-		p, err := r.Seek(-1, 1)
+		p, err := d.r.Seek(-1, 1)
 		if err != nil {
-			encError(err.Error())
+			decError(err.Error())
 		}
-		r.Read(buf)
+		d.r.Read(buf)
 		decError(fmt.Sprintf("invalid Id at reader position 0x%x or EBMLMaxIDLength > 4, next 8 bytes 0x%0.2x", p, buf))
 	}
 	var nn int
-	nn, err = r.Read(buf)
+	nn, err = d.r.Read(buf)
 	n += nn
 	if err != nil {
-		encError(err.Error())
+		decError(err.Error())
 	}
 	for _, c := range buf {
 		id <<= 8
@@ -49,45 +50,44 @@ func readIdFrom(r io.ReadSeeker) (int, Id) {
 }
 
 // readSizeFrom reads a size from a Reader and returns the number of bytes read and the size
-func readSizeFrom(r io.Reader) (int, int64) {
-	buf := make([]byte, 8)
-	n, err := r.Read(buf[:1])
+func (d *Decoder) readSize() (int, int64) {
+	n, err := d.r.Read(d.buf[:1])
 	if err != nil {
-		encError(err.Error())
+		decError(err.Error())
 	}
-	size := int64(buf[0])
-
+	size := int64(d.buf[0])
+	var buf []byte
 	switch {
 	case size >= 0x80:
 		size -= 0x80
 		return n, size
 	case size >= 0x40:
 		size -= 0x40
-		buf = buf[:1]
+		buf = d.buf[:1]
 	case size >= 0x20:
 		size -= 0x20
-		buf = buf[:2]
+		buf = d.buf[:2]
 	case size >= 0x10:
 		size -= 0x10
-		buf = buf[:3]
+		buf = d.buf[:3]
 	case size >= 0x08:
 		size -= 0x08
-		buf = buf[:4]
+		buf = d.buf[:4]
 	case size >= 0x04:
 		size -= 0x04
-		buf = buf[:5]
+		buf = d.buf[:5]
 	case size >= 0x02:
 		size -= 0x02
-		buf = buf[:6]
+		buf = d.buf[:6]
 	case size >= 0x01:
 		size -= 0x01
-		buf = buf[:7]
+		buf = d.buf[:7]
 	}
 	var nn int
-	nn, err = r.Read(buf)
+	nn, err = d.r.Read(buf)
 	n += nn
 	if err != nil {
-		encError(err.Error())
+		decError(err.Error())
 	}
 	for _, c := range buf {
 		size <<= 8
@@ -118,7 +118,6 @@ func decodeValue(d *Decoder, id Id, size int64, v reflect.Value) {
 			um = v.Interface().(Unmarshaler)
 		}
 
-		fmt.Println("made an unmashaler out of", id, v)
 		rf := um.UnmarshalEBML(size)
 		r := io.LimitReader(d.r, size)
 		rf.ReadFrom(r)
@@ -148,9 +147,13 @@ func decodeValue(d *Decoder, id Id, size int64, v reflect.Value) {
 	case reflect.String:
 		fn = decodeString
 	case reflect.Struct:
-		fn = decodeStruct
+		if _, ok := v.Interface().(time.Time); ok {
+			fn = decodeTime
+		} else {
+			fn = decodeStruct
+		}
 	default:
-		encError(fmt.Sprintf("unsupported type %v", v.Type()))
+		decError(fmt.Sprintf("unsupported type %v", v.Type()))
 	}
 	fn(d, id, size, v)
 }
@@ -232,9 +235,9 @@ func decodeStruct(d *Decoder, id Id, size int64, v reflect.Value) {
 	var ok bool
 	for size > 0 {
 		// read and and size
-		n, subId = readIdFrom(d.r)
+		n, subId = d.readId()
 		size -= int64(n)
-		n, subSize = readSizeFrom(d.r)
+		n, subSize = d.readSize()
 		size -= int64(n)
 
 		// look up if the subId should decode into a field
@@ -254,5 +257,23 @@ func decodeStruct(d *Decoder, id Id, size int64, v reflect.Value) {
 			fieldFunc[n]
 		*/
 		size -= subSize
+	}
+}
+
+func decodeTime(d *Decoder, id Id, size int64, v reflect.Value) {
+	if size != 8 {
+		decError(fmt.Sprintf("%d is an invalid length for a date value", size))
+	}
+	_, err := d.r.Read(d.buf)
+
+	date := time.Duration(int8(d.buf[0]))
+	for _, c := range d.buf[1:] {
+		date <<= 8
+		date += time.Duration(c)
+	}
+	v.Set(reflect.ValueOf(epoch.Add(date))) // epoch defined in ebml.go
+
+	if err != nil {
+		decError(err.Error())
 	}
 }

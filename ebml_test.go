@@ -103,11 +103,11 @@ func TestInt(t *testing.T) {
 
 		err = ebml.Unmarshal(buf, &out)
 		if err != nil && err != io.EOF {
-			t.Fatalf("marshal int %d: %s\n buf: %x", I, err, buf)
+			t.Fatalf("unmarshal int %d: %s\n buf: %x", I, err, buf)
 		}
 
 		if !reflect.DeepEqual(in, out) {
-			t.Fatalf("marshal int %d: in=%0.2x out=%0.2x", I, in.I, out.I)
+			t.Fatalf("marshal and unmarshal int %d: in=%0.2x out=%0.2x", I, in.I, out.I)
 		}
 	}
 }
@@ -129,16 +129,50 @@ func TestUint(t *testing.T) {
 		in.I = I
 		buf, err = ebml.Marshal(in)
 		if err != nil {
-			t.Fatalf("marshal int %d: %s\n buf: %x", I, err, buf)
+			t.Fatalf("marshal uint %d: %s\n buf: %x", I, err, buf)
 		}
 
 		err = ebml.Unmarshal(buf, &out)
 		if err != nil && err != io.EOF {
-			t.Fatalf("marshal int %d: %s\n buf: %x", I, err, buf)
+			t.Fatalf("unmarshal uint %d: %s\n buf: %x", I, err, buf)
 		}
 
 		if !reflect.DeepEqual(in, out) {
-			t.Fatalf("marshal int %d: in=%0.2x out=%0.2x", I, in.I, out.I)
+			t.Fatalf("marshal and unmarshal uint %d: in=%0.2x out=%0.2x", I, in.I, out.I)
+		}
+	}
+}
+
+type dateTestStruct struct {
+	EbmlId ebml.Id   `ebml:"81"`
+	D      time.Time `ebml:"82"`
+}
+
+func TestDate(t *testing.T) {
+	now := time.Now()
+	rand.Seed(now.UnixNano())
+	I := rand.Int63()
+
+	var in, out dateTestStruct
+	
+
+	for i := 0; i < 256; i++ {
+		I = int64(float32(I) * 1.5)
+		date := now.Add(time.Duration(I))
+
+		in.D = date
+		buf, err := ebml.Marshal(in)
+		if err != nil {
+			t.Fatalf("marshal time.Time %v: %s\n buf: %x", date, err, buf)
+		}
+
+		err = ebml.Unmarshal(buf, &out)
+		if err != nil && err != io.EOF {
+			t.Fatalf("unmarshal time.Time %v: %s\n buf: %x", date, err, buf)
+		}
+
+		if !in.D.Equal(out.D) {
+			t.Fatalf("marshal and unmarshal time.Time: in=%v out=%v", in.D, out.D)
 		}
 	}
 }
