@@ -221,23 +221,44 @@ func marshalSize(x int64) []byte {
 
 func marshalInt(id Id, x int64) encoder {
 	var xl int
-	switch {
-	case x < 0x8F, x > -0x8F:
-		xl = 1
-	case x < 0x8FFF, x > -0x8FFF:
-		xl = 2
-	case x < 0x8FFFFF, x > -0x8FFFFF:
-		xl = 3
-	case x < 0x8FFFFFFF, x > -0x8FFFFFFF:
-		xl = 4
-	case x < 0x8FFFFFFFFF, x > -0x8FFFFFFFFF:
-		xl = 5
-	case x < 0x8FFFFFFFFFFF, x > -0x8FFFFFFFFFFF:
-		xl = 6
-	case x < 0x8FFFFFFFFFFFFF, x > -0x8FFFFFFFFFFFFF:
-		xl = 7
-	default:
-		xl = 8
+	if x > 0 {
+		switch {
+		case x < 0x80:
+			xl = 1
+		case x < 0x8000:
+			xl = 2
+		case x < 0x800000:
+			xl = 3
+		case x < 0x80000000:
+			xl = 4
+		case x < 0x8000000000:
+			xl = 5
+		case x < 0x800000000000:
+			xl = 6
+		case x < 0x80000000000000:
+			xl = 7
+		default:
+			xl = 8
+		}
+	} else {
+		switch {
+		case x > -0x7F:
+			xl = 1
+		case x > -0x7FFF:
+			xl = 2
+		case x > -0x7FFFFF:
+			xl = 3
+		case x > -0x7FFFFFFF:
+			xl = 4
+		case x > -0x7FFFFFFFFF:
+			xl = 5
+		case x > -0x7FFFFFFFFFFF:
+			xl = 6
+		case x > -0x7FFFFFFFFFFFFF:
+			xl = 7
+		default:
+			xl = 8
+		}
 	}
 
 	idBuf := id.Bytes()
@@ -247,13 +268,12 @@ func marshalInt(id Id, x int64) encoder {
 	b[p] = 0x80 | byte(xl)
 	p++
 
-	i := l - 1
-
-	b[i] = byte(x)
-	for i > p {
+	l--
+	b[l] = byte(x)
+	for l > p {
+		l--
 		x >>= 8
-		b[i] = byte(x)
-		i--
+		b[l] = byte(x)
 	}
 	return b
 }
@@ -286,12 +306,12 @@ func marshalUint(id Id, x uint64) encoder {
 	b[p] = 0x80 | byte(xl)
 	p++
 
-	i := l - 1
-	b[i] = byte(x)
-	for i > p {
+	l--
+	b[l] = byte(x)
+	for l > p {
+		l--
 		x >>= 8
-		b[i] = byte(x)
-		i--
+		b[l] = byte(x)
 	}
 	return b
 }
@@ -322,4 +342,3 @@ func newStructEncoder(id Id, v reflect.Value) encoder {
 	}
 	return e
 }
-

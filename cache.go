@@ -87,20 +87,11 @@ func cachedFieldDecoderTable(typ reflect.Type) []decoderFunc {
 		for k == reflect.Ptr {
 			k = f.Type.Elem().Kind()
 		}
-
-		// I wanted to use an array of functions indexed by reflect.Kind,
-		// but kept getting initialization loop build errors
 		switch k {
-		case reflect.Uint:
-			s[i] = decodeUint
-		case reflect.Uint8:
-			s[i] = decodeUint
-		case reflect.Uint16:
-			s[i] = decodeUint
-		case reflect.Uint32:
-			s[i] = decodeUint
-		case reflect.Uint64:
-			s[i] = decodeUint
+		case reflect.Int, reflect.Int8, reflect.Int32, reflect.Int64:
+			s[i] = decodeInt
+		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+			s[i] = decodeUinta
 		case reflect.Slice:
 			s[i] = decodeSlice
 		case reflect.String:

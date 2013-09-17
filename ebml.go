@@ -8,6 +8,7 @@ the Exensible Binary Markup Langauge.
 package ebml
 
 import (
+	"fmt"
 	"reflect"
 	"strconv"
 )
@@ -37,20 +38,21 @@ type Header struct {
 }
 
 // Id is a type that identifies an ebml element.
-type Id uint32
+type Id uint64
 
+// Bytes returns an Id in byte slice form
 func (id Id) Bytes() []byte {
 	var l int
 	switch {
-	case id < 0x10:
-		panic("invalid element ID")
-	case id < 0x400:
+	case id < 0x81:
+		panic(fmt.Sprintf("invalid element ID %s", id))
+	case id < 0x4001:
 		l = 1
-	case id < 0x8000:
+	case id < 0x200001:
 		l = 2
-	case id < 0x400000:
+	case id < 0x10000001:
 		l = 3
-	case id < 0x20000000:
+	case id < 0x0800000001:
 		l = 4
 	default:
 		panic("invalid element ID")

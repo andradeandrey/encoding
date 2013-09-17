@@ -32,7 +32,7 @@ func readIdFrom(r io.ReadSeeker) (int, Id) {
 		if err != nil {
 			encError(err.Error())
 		}
-		encError(fmt.Sprintf("invalid Id at reader position %x or EBMLMaxIDLength > 4, read byte %x", p, buf[0]))
+		decError(fmt.Sprintf("invalid Id at reader position %x or EBMLMaxIDLength > 4, read byte %x", p, buf[0]))
 	}
 	var nn int
 	nn, err = r.Read(buf)
@@ -137,15 +137,10 @@ func decodeValue(d *Decoder, id Id, size int64, v reflect.Value) {
 	// I wanted to use an array of functions indexed by reflect.Kind,
 	// but kept getting initialization loop build errors
 	switch v.Kind() {
-	case reflect.Uint:
-		fn = decodeUint
-	case reflect.Uint8:
-		fn = decodeUint
-	case reflect.Uint16:
-		fn = decodeUint
-	case reflect.Uint32:
-		fn = decodeUint
-	case reflect.Uint64:
+
+	case reflect.Int, reflect.Int8, reflect.Int32, reflect.Int64:
+		fn = decodeInt
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		fn = decodeUint
 	case reflect.Slice:
 		fn = decodeSlice
@@ -159,10 +154,30 @@ func decodeValue(d *Decoder, id Id, size int64, v reflect.Value) {
 	fn(d, id, size, v)
 }
 
+func decodeInt(d *Decoder, id Id, size int64, v reflect.Value) {
+	_, err := d.r.Read(d.buf[:size])
+	x := int64(int8(d.buf[0]))
+	for _, c := range d.buf[1:size] {
+		x <<= 8
+		x += int64(c)
+	}
+	if x == 0 {
+		return
+	}
+	if v.OverflowInt(x) {
+		decError(fmt.Sprintf("element %s value %d overflows %s", id, x, v.Type()))
+	}
+	v.SetInt(x)
+	if err != nil {
+		decError(err.Error())
+	}
+}
+
 func decodeUint(d *Decoder, id Id, size int64, v reflect.Value) {
 	_, err := d.r.Read(d.buf[:size])
 	x := uint64(d.buf[0])
-	for _, c := range d.buf[1:] {
+	for _, c := range d.buf[1:size] {
+		x <<= 8
 		x += uint64(c)
 	}
 	if x == 0 {

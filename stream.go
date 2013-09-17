@@ -81,7 +81,7 @@ func (d *Decoder) Decode(element interface{}) (err error) {
 	id := getId(v)
 	if n, curId := readIdFrom(d.r); id != curId {
 		d.r.Seek(int64(-n), 0)
-		return fmt.Errorf("ebml: read stream positioned at %s not %s", id, curId)
+		return fmt.Errorf("ebml: read stream positioned at element %s not %s", curId, id)
 	}
 	_, size := readSizeFrom(d.r)
 
@@ -139,8 +139,8 @@ type Marshaler interface {
 // resposibility of an Unmarshaler to limit reading to n.
 //
 // An Unmarshaler is usually sent to the decoding engine as a nil pointer
-// in a struct and created when a tagged element is encountered, for this 
-// reason the UnmarshalEBML method should behave as if the Unmarshaler is 
+// in a struct and created when a tagged element is encountered, for this
+// reason the UnmarshalEBML method should behave as if the Unmarshaler is
 // at a zero value state.
 type Unmarshaler interface {
 	// BUG(Emery): an embedded Unmarshaler will trample on a struct

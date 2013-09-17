@@ -3,7 +3,7 @@ package main
 
 import (
 	"fmt"
-	"git.gitorious.org/go-ebml/ebml.git"
+	"github.com/3M3RY/go-ebml"
 	"os"
 )
 
@@ -15,9 +15,10 @@ func main() {
 			continue
 		}
 
-		c := id[0]
+		b := id.Bytes()
+		c := b[0]
 		var good bool
-		switch l := len(id); l {
+		switch l := len(b); l {
 		case 1:
 			good = c <= 0xff && c > 0x80
 		case 2:
@@ -33,8 +34,8 @@ func main() {
 		} else {
 			fmt.Print("Id is bad:  ")
 		}
-		fmt.Printf("% 11x ", id)
-		for _, c := range id {
+		fmt.Printf("% 11s ", id)
+		for _, c := range b {
 			fmt.Printf(".%08b", c)
 		}
 		fmt.Println()
