@@ -197,6 +197,21 @@ func decodeUint(d *Decoder, id Id, size int64, v reflect.Value) {
 }
 
 func decodeSlice(d *Decoder, id Id, size int64, v reflect.Value) {
+	if _, ok := v.Interface().([]byte); ok {
+		var buf []byte
+		if size <= 8 {
+			buf = d.buf[:size]
+		} else {
+			buf = make([]byte, int(size))
+		}
+		_, err := d.r.Read(buf)
+		v.Set(reflect.ValueOf(buf))
+		if err != nil {
+			decError(err.Error())
+		}
+		return
+	}
+
 	// TODO(Emery): would be nice to use reflect.Append()
 	n := v.Len()
 	if n >= v.Cap() {
@@ -241,10 +256,7 @@ func decodeStruct(d *Decoder, id Id, size int64, v reflect.Value) {
 		size -= int64(n)
 
 		// look up if the subId should decode into a field
-		if n, ok = idField[subId]; !ok {
-			continue
-		}
-
+		if n, ok = idField[subId]; ok {
 		decodeValue(d, subId, subSize, v.Field(n))
 		/*
 			subV = v.Field(n)
@@ -256,6 +268,9 @@ func decodeStruct(d *Decoder, id Id, size int64, v reflect.Value) {
 			// use the cached decoder funtion for field
 			fieldFunc[n]
 		*/
+		} else {
+			d.r.Seek(size, 0)
+		}
 		size -= subSize
 	}
 }

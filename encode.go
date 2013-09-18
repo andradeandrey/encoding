@@ -317,6 +317,16 @@ func marshalUint(id Id, x uint64) encoder {
 }
 
 func encodeSlice(id Id, v reflect.Value) encoder {
+	if bs, ok := v.Interface().([]byte); ok {
+		idBuf := id.Bytes()
+		sizeBuf := marshalSize(int64(len(bs)))
+		buf := make(simpleElement, len(idBuf)+len(sizeBuf)+len(bs))
+		n := copy(buf, idBuf)
+		n += copy(buf[n:], sizeBuf)
+		copy(buf[n:], bs)
+		return buf
+	}
+
 	l := v.Len()
 	s := make(sliceElement, l)
 	for i := 0; i < l; i++ {

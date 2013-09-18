@@ -78,6 +78,10 @@ func (d *Decoder) Decode(element interface{}) (err error) {
 	}()
 
 	v := reflect.ValueOf(element)
+	for v.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+		v = v.Elem()
+	}
+
 	id := getId(v)
 	if n, curId := d.readId(); id != curId {
 		d.r.Seek(int64(-n), 0)
