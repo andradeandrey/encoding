@@ -127,7 +127,7 @@ func Unmarshal(data []byte, element interface{}) error {
 // writen to an EBML stream.
 type Marshaler interface {
 	// BUG(Emery): an embedded Marshaler will trample on a struct
-	MarshalEBML() (wt io.WriterTo, size int64)
+	MarshalEBML() (size int64, wt io.WriterTo)
 }
 
 // Unmarshaler is the interface implemented by objects that

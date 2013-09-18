@@ -126,7 +126,7 @@ func isEmptyValue(v reflect.Value) bool {
 
 func encode(id Id, v reflect.Value) encoder {
 	if m, ok := v.Interface().(Marshaler); ok {
-		wt, size := m.MarshalEBML()
+		size, wt := m.MarshalEBML()
 		header := append(id.Bytes(), marshalSize(size)...)
 		return &marshalerElement{id, size, header, wt}
 	}
