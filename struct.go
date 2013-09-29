@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-
 	"reflect"
 	"sort"
 	"strings"
@@ -393,6 +392,10 @@ func writeValue(w io.Writer, val reflect.Value) (err error) {
 	if !val.IsValid() {
 		err = errors.New("Can't write null value")
 		return
+	}
+
+	for val.Kind() == reflect.Ptr || val.Kind() == reflect.Interface {
+		val = val.Elem()
 	}
 
 	switch v := val; v.Kind() {
