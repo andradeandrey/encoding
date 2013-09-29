@@ -11,8 +11,9 @@ import (
 type any interface{}
 
 func checkMarshal(expected string, data any) (err error) {
-	var b bytes.Buffer
-	if err = Marshal(&b, data); err != nil {
+	b := new(bytes.Buffer)
+	e := NewEncoder(b)
+	if err = e.Encode(data); err != nil {
 		return
 	}
 	s := b.String()
@@ -27,8 +28,8 @@ func check(expected string, data any) (err error) {
 	if err = checkMarshal(expected, data); err != nil {
 		return
 	}
-	b2 := bytes.NewBufferString(expected)
-	val, err := Decode(b2)
+	d := NewDecoder(bytes.NewBufferString(expected))
+	val, err := d.Decode()
 	if err != nil {
 		err = errors.New(fmt.Sprint("Failed decoding ", expected, " ", err))
 		return

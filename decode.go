@@ -8,26 +8,23 @@
 package bencode
 
 import (
+	"bytes"
 	"io"
 )
 
-// Decode a bencode stream
+// A Decoder decodes bencoded data from a stream.
+type Decoder struct {
+	r io.Reader
+}
 
-// Decode parses the stream r and returns the
-// generic bencode object representation.  The object representation is a tree
-// of Go data types.  The data return value may be one of string,
-// int64, uint64, []interface{} or map[string]interface{}.  The slice and map
-// elements may in turn contain any of the types listed above and so on.
-//
-// If Decode encounters a syntax error, it returns with err set to an
-// instance of Error.
-func Decode(r io.Reader) (data interface{}, err error) {
-	jb := newDecoder(nil, nil)
-	err = parse(r, jb)
-	if err == nil {
-		data = jb.Copy()
-	}
-	return
+// NewDecoder returns a new decoder that decodes from r.
+func NewDecoder(r io.Reader) *Decoder {
+	return &Decoder{r}
+}
+
+// Decode decodes data from the wrapped stream into x.
+func (d *Decoder) Decode(x interface{}) error {
+	return unmarshalValue(d.r, x)
 }
 
 type decoder struct {
@@ -66,7 +63,7 @@ func (j *decoder) Elem(i int) builder {
 		v = make([]interface{}, 0, 8)
 		j.value = v
 	}
-/* XXX There is a bug in here somewhere, but append() works fine.
+	/* XXX There is a bug in here somewhere, but append() works fine.
 	lens := len(v)
 	if cap(v) <= lens {
 		news := make([]interface{}, 0, lens*2)
@@ -74,7 +71,7 @@ func (j *decoder) Elem(i int) builder {
 		v = news
 	}
 	v = v[0 : lens+1]
-*/	
+	*/
 	v = append(v, nil)
 	j.value = v
 	return newDecoder(v, i)
@@ -103,4 +100,60 @@ func (j *decoder) Flush() {
 // Get the value built by this builder.
 func (j *decoder) Copy() interface{} {
 	return j.value
+}
+
+// Unmarshal reads and parses the bencode syntax data from r and fills in
+// an arbitrary struct or slice pointed at by val.
+// It uses the reflect package to assign to fields
+// and arrays embedded in val.  Well-formed data that does not fit
+// into the struct is discarded.
+//
+// For example, given these definitions:
+//
+//	type Email struct {
+//		Where string;
+//		Addr string;
+//	}
+//
+//	type Result struct {
+//		Name string;
+//		Phone string;
+//		Email []Email
+//	}
+//
+//	var r = new(Result)
+//
+// unmarshalling the bencode syntax string
+//
+//	"d5:emailld5:where4:home4:addr15:gre@example.come\
+//  d5:where4:work4:addr12:gre@work.comee4:name14:Gr\
+//  ace R. Emlin7:address15:123 Main Streete"
+//
+// via Unmarshal(s, r) is equivalent to assigning
+//
+//	r = Result{
+//		"Grace R. Emlin",	// name
+//		"phone",		// no phone given
+//		[]Email{
+//			Email{ "home", "gre@example.com" },
+//			Email{ "work", "gre@work.com" }
+//		}
+//	}
+//
+// Note that the field r.Phone has not been modified and
+// that the bencode field "address" was discarded.
+//
+// Because Unmarshal uses the reflect package, it can only
+// assign to upper case fields.  Unmarshal uses a case-insensitive
+// comparison to match bencode field names to struct field names.
+//
+// If you provide a "bencode" key in the tag string for a struct member, the
+// tag string will be used as the bencode dictionary key for that member. If
+// the field tag is "-" the field is ignored.
+//
+// To unmarshal a top-level bencode array, pass in a pointer to an empty
+// slice of the correct type.
+//
+func Unmarshal(data []byte, x interface{}) error {
+	return unmarshalValue(bytes.NewReader(data), x)
 }

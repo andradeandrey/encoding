@@ -231,70 +231,17 @@ func (b *structBuilder) Key(k string) builder {
 	return nobuilder
 }
 
-// Unmarshal reads and parses the bencode syntax data from r and fills in
-// an arbitrary struct or slice pointed at by val.
-// It uses the reflect package to assign to fields
-// and arrays embedded in val.  Well-formed data that does not fit
-// into the struct is discarded.
-//
-// For example, given these definitions:
-//
-//	type Email struct {
-//		Where string;
-//		Addr string;
-//	}
-//
-//	type Result struct {
-//		Name string;
-//		Phone string;
-//		Email []Email
-//	}
-//
-//	var r = Result{ "name", "phone", nil }
-//
-// unmarshalling the bencode syntax string
-//
-//	"d5:emailld5:where4:home4:addr15:gre@example.come\
-//  d5:where4:work4:addr12:gre@work.comee4:name14:Gr\
-//  ace R. Emlin7:address15:123 Main Streete"
-//
-// via Unmarshal(s, &r) is equivalent to assigning
-//
-//	r = Result{
-//		"Grace R. Emlin",	// name
-//		"phone",		// no phone given
-//		[]Email{
-//			Email{ "home", "gre@example.com" },
-//			Email{ "work", "gre@work.com" }
-//		}
-//	}
-//
-// Note that the field r.Phone has not been modified and
-// that the bencode field "address" was discarded.
-//
-// Because Unmarshal uses the reflect package, it can only
-// assign to upper case fields.  Unmarshal uses a case-insensitive
-// comparison to match bencode field names to struct field names.
-//
-// If you provide a "bencode" key in the tag string for a struct member, the
-// tag string will be used as the bencode dictionary key for that member. If 
-// the field tag is "-" the field is ignored.
-//
-// To unmarshal a top-level bencode array, pass in a pointer to an empty
-// slice of the correct type.
-//
-func Unmarshal(r io.Reader, val interface{}) (err error) {
+var errorNonPointer = errors.New("Attempt to unmarshal into a non-pointer")
+
+func unmarshalValue(r io.Reader, x interface{}) (err error) {
+	//v := reflect.Indirect(reflect.ValueOf(x))
+	v := reflect.ValueOf(x)
 	// If e represents a value, the answer won't get back to the
 	// caller.  Make sure it's a pointer.
-	if reflect.TypeOf(val).Kind() != reflect.Ptr {
-		err = errors.New("Attempt to unmarshal into a non-pointer")
-		return
+	if v.Type().Kind() != reflect.Ptr {
+		return errorNonPointer
 	}
-	err = unmarshalValue(r, reflect.Indirect(reflect.ValueOf(val)))
-	return
-}
 
-func unmarshalValue(r io.Reader, v reflect.Value) (err error) {
 	var b *structBuilder
 
 	// XXX: Decide if the extra codnitions are needed. Affect map?
@@ -312,11 +259,11 @@ func unmarshalValue(r io.Reader, v reflect.Value) (err error) {
 	return
 }
 
-type MarshalError struct {
+type marshalError struct {
 	T reflect.Type
 }
 
-func (e *MarshalError) Error() string {
+func (e *marshalError) Error() string {
 	return "bencode cannot encode value of type " + e.T.String()
 }
 
@@ -376,7 +323,7 @@ func writeSVList(w io.Writer, svList stringValueArray) (err error) {
 func writeMap(w io.Writer, val reflect.Value) (err error) {
 	key := val.Type().Key()
 	if key.Kind() != reflect.String {
-		return &MarshalError{val.Type()}
+		return &marshalError{val.Type()}
 	}
 	_, err = fmt.Fprint(w, "d")
 	if err != nil {
@@ -467,7 +414,7 @@ func writeValue(w io.Writer, val reflect.Value) (err error) {
 	case reflect.Interface:
 		err = writeValue(w, v.Elem())
 	default:
-		err = &MarshalError{val.Type()}
+		err = &marshalError{val.Type()}
 	}
 	return
 }
@@ -483,47 +430,4 @@ func isValueNil(val reflect.Value) bool {
 		return false
 	}
 	return false
-}
-
-// Marshal writes the bencode encoding of val to w.
-//
-// Marshal traverses the value v recursively.
-//
-// Marshal uses the following type-dependent encodings:
-//
-// Floating point, integer, and Number values encode as bencode numbers.
-//
-// String values encode as bencode strings.
-//
-// Array and slice values encode as bencode arrays.
-//
-// Struct values encode as bencode maps. Each exported struct field
-// becomes a member of the object.
-// The object's default key string is the struct field name
-// but can be specified in the struct field's tag value. The text of
-// the struct field's tag value is the key name. Examples:
-//
-//   // Field appears in bencode as key "Field".
-//   Field int
-//
-//   // Field appears in bencode as key "myName".
-//   Field int `bencode:"myName"`
-//
-// Anonymous struct fields are ignored.
-//
-// Map values encode as bencode objects.
-// The map's key type must be string; the object keys are used directly
-// as map keys.
-//
-// Boolean, Pointer, Interface, Channel, complex, and function values cannot
-// be encoded in bencode.
-// Attempting to encode such a value causes Marshal to return
-// a MarshalError.
-//
-// Bencode cannot represent cyclic data structures and Marshal does not
-// handle them.  Passing cyclic structures to Marshal will result in
-// an infinite recursion.
-//
-func Marshal(w io.Writer, val interface{}) error {
-	return writeValue(w, reflect.ValueOf(val))
 }
