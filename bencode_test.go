@@ -2,265 +2,110 @@ package bencode
 
 import (
 	"bytes"
-	"errors"
-	"fmt"
 	"reflect"
 	"testing"
 )
 
-type any interface{}
-
-func checkMarshal(expected string, data any) (err error) {
-	b := new(bytes.Buffer)
-	e := NewEncoder(b)
-	if err = e.Encode(data); err != nil {
-		return
-	}
-	s := b.String()
-	if expected != s {
-		err = errors.New(fmt.Sprintf("Expected %s got %s", expected, s))
-		return
-	}
-	return
+type test struct {
+	in  string
+	ptr interface{}
+	out interface{}
+	err error
 }
 
-func check(expected string, data any) (err error) {
-	if err = checkMarshal(expected, data); err != nil {
-		return
-	}
-	d := NewDecoder(bytes.NewBufferString(expected))
-	val, err := d.Decode()
-	if err != nil {
-		err = errors.New(fmt.Sprint("Failed decoding ", expected, " ", err))
-		return
-	}
-	if err = checkFuzzyEqual(data, val); err != nil {
-		return
-	}
-	return
+type Ambig struct {
+	// Given "hello", the first match should win.
+	First  int `bencode:"HELLO"`
+	Second int `bencode:"Hello"`
 }
 
-func checkFuzzyEqual(a any, b any) (err error) {
-	if !fuzzyEqual(a, b) {
-		err = errors.New(fmt.Sprint(a, " != ", b,
-			": ", reflect.ValueOf(a), "!=", reflect.ValueOf(b)))
-	}
-	return
+var tests = []test{
+	// basic types
+	//{in: `i1e`, ptr: new(bool), out: true},
+	{in: `i1e`, ptr: new(int), out: 1},
+	{in: `i2e`, ptr: new(int64), out: int64(2)},
+	{in: `i-5e`, ptr: new(int16), out: int16(-5)},
+	{in: `i2e`, ptr: new(interface{}), out: int64(2)},
+	{in: "i0e", ptr: new(interface{}), out: int64(0)},
+	{in: "i0e", ptr: new(int), out: 0},
+	{in: "1:a", ptr: new(string), out: "a"},
+	{in: "2:a\"", ptr: new(string), out: "a\""},
+	{in: "11:0123456789a", ptr: new(interface{}), out: []byte("0123456789a")},
+	{in: "le", ptr: new([]int64), out: []int64{}},
+	{in: "li1ei2ee", ptr: new([]int), out: []int{1, 2}},
+	{in: "l3:abc3:defe", ptr: new([]string), out: []string{"abc", "def"}},
+	//{in: "li42e3:abce", ptr: new([]interface{}), out: []interface{}{42, []byte("abc")}},
+	{in: "de", ptr: new(map[string]interface{}), out: make(map[string]interface{})},
+	{in: "d3:cati1e3:dogi2ee", ptr: new(map[string]int), out: map[string]int{"cat": 1, "dog": 2}},
 }
 
-func fuzzyEqual(a, b any) bool {
-	return fuzzyEqualValue(reflect.ValueOf(a), reflect.ValueOf(b))
-}
+func TestMarshal(t *testing.T) {
+	buf := new(bytes.Buffer)
+	enc := NewEncoder(buf)
+	for i, tt := range tests {
+		buf.Reset()
+		var scan scanner
+		in := []byte(tt.in)
+		if err := checkValid(in, &scan); err != nil {
+			if !reflect.DeepEqual(err, tt.err) {
+				t.Errorf("#%d: checkValid: %#v", i, err)
+				continue
+			}
+		}
+		if err := enc.Encode(tt.out); err != nil {
+			t.Errorf("#%d: %q Error: %s", i, tt.in, err)
+			continue
+		}
 
-func checkFuzzyEqualValue(a, b reflect.Value) (err error) {
-	if !fuzzyEqualValue(a, b) {
-		err = fmt.Errorf("Wanted %v(%v) got %v(%v)", a, a.Interface(), b, b.Interface())
-	}
-	return
-}
-
-func fuzzyEqualInt64(a int64, b reflect.Value) bool {
-	switch vb := b; vb.Kind() {
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return a == (vb.Int())
-	default:
-		return false
-	}
-	return false
-}
-
-func fuzzyEqualArrayOrSlice(va reflect.Value, b reflect.Value) bool {
-	switch vb := b; vb.Kind() {
-	case reflect.Array:
-		return fuzzyEqualArrayOrSlice2(va, vb)
-	case reflect.Slice:
-		return fuzzyEqualArrayOrSlice2(va, vb)
-	default:
-		return false
-	}
-	return false
-}
-
-func deInterface(a reflect.Value) reflect.Value {
-	switch va := a; va.Kind() {
-	case reflect.Interface:
-		return va.Elem()
-	}
-	return a
-}
-
-func fuzzyEqualArrayOrSlice2(a reflect.Value, b reflect.Value) bool {
-	if a.Len() != b.Len() {
-		return false
-	}
-
-	for i := 0; i < a.Len(); i++ {
-		ea := deInterface(a.Index(i))
-		eb := deInterface(b.Index(i))
-		if !fuzzyEqualValue(ea, eb) {
-			return false
+		out := buf.String()
+		if out != tt.in {
+			t.Errorf("#%d: Want %q, got %q", i, tt.in, out)
 		}
 	}
-	return true
-}
-
-func fuzzyEqualMap(a reflect.Value, b reflect.Value) bool {
-	key := a.Type().Key()
-	if key.Kind() != reflect.String {
-		return false
-	}
-	key = b.Type().Key()
-	if key.Kind() != reflect.String {
-		return false
-	}
-
-	aKeys, bKeys := a.MapKeys(), b.MapKeys()
-
-	if len(aKeys) != len(bKeys) {
-		return false
-	}
-
-	for _, k := range aKeys {
-		if !fuzzyEqualValue(a.MapIndex(k), b.MapIndex(k)) {
-			return false
-		}
-	}
-	return true
-}
-
-func fuzzyEqualStruct(a reflect.Value, b reflect.Value) bool {
-	numA, numB := a.NumField(), b.NumField()
-	if numA != numB {
-		return false
-	}
-
-	for i := 0; i < numA; i++ {
-		if !fuzzyEqualValue(a.Field(i), b.Field(i)) {
-			return false
-		}
-	}
-	return true
-}
-
-func fuzzyEqualValue(a, b reflect.Value) bool {
-	switch va := a; va.Kind() {
-	case reflect.String:
-		switch vb := b; vb.Kind() {
-		case reflect.String:
-			return va.String() == vb.String()
-		default:
-			return false
-		}
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return fuzzyEqualInt64(va.Int(), b)
-	case reflect.Array:
-		return fuzzyEqualArrayOrSlice(va, b)
-	case reflect.Slice:
-		return fuzzyEqualArrayOrSlice(va, b)
-	case reflect.Map:
-		switch vb := b; vb.Kind() {
-		case reflect.Map:
-			return fuzzyEqualMap(va, vb)
-		default:
-			return false
-		}
-	case reflect.Struct:
-		switch vb := b; vb.Kind() {
-		case reflect.Struct:
-			return fuzzyEqualStruct(va, vb)
-		default:
-			return false
-		}
-	case reflect.Interface:
-		switch vb := b; vb.Kind() {
-		case reflect.Interface:
-			return fuzzyEqualValue(va.Elem(), vb.Elem())
-		default:
-			return false
-		}
-	default:
-		return false
-	}
-	return false
-}
-
-func checkUnmarshal(expected string, data any) (err error) {
-	if err = checkMarshal(expected, data); err != nil {
-		return
-	}
-	dataValue := reflect.ValueOf(data)
-	newOne := reflect.New(reflect.TypeOf(data))
-	buf := bytes.NewBufferString(expected)
-	if err = unmarshalValue(buf, newOne); err != nil {
-		return
-	}
-	if err = checkFuzzyEqualValue(dataValue, newOne.Elem()); err != nil {
-		return
-	}
-	return
-}
-
-type SVPair struct {
-	s string
-	v any
-}
-
-func TestDecode(t *testing.T) {
-	tests := []SVPair{
-		SVPair{"i0e", int64(0)},
-		SVPair{"i0e", 0},
-		SVPair{"i100e", 100},
-		SVPair{"i-100e", -100},
-		SVPair{"1:a", "a"},
-		SVPair{"2:a\"", "a\""},
-		SVPair{"11:0123456789a", "0123456789a"},
-		SVPair{"le", []int64{}},
-		SVPair{"li1ei2ee", []int{1, 2}},
-		SVPair{"l3:abc3:defe", []string{"abc", "def"}},
-		SVPair{"li42e3:abce", []any{42, "abc"}},
-		SVPair{"de", map[string]any{}},
-		SVPair{"d3:cati1e3:dogi2ee", map[string]any{"cat": 1, "dog": 2}},
-	}
-	for _, sv := range tests {
-		if err := check(sv.s, sv.v); err != nil {
-			t.Error(err.Error())
-		}
-	}
-}
-
-type structA struct {
-	A int    `bencode:"a"`
-	B string `bencode:"b"`
 }
 
 func TestUnmarshal(t *testing.T) {
-	type structNested struct {
-		T string            `bencode:"t"`
-		Y string            `bencode:"y"`
-		Q string            `bencode:"q"`
-		A map[string]string `bencode:"a"`
+	for i, tt := range tests {
+		var scan scanner
+		in := []byte(tt.in)
+		if err := checkValid(in, &scan); err != nil {
+			if !reflect.DeepEqual(err, tt.err) {
+				t.Errorf("#%d: checkValid: %#v", i, err)
+				continue
+			}
+		}
+		if tt.ptr == nil {
+			continue
+		}
+		v := reflect.New(reflect.TypeOf(tt.ptr).Elem())
+		dec := NewDecoder(bytes.NewBuffer(in))
+		if err := dec.Decode(v.Interface()); !reflect.DeepEqual(err, tt.err) {
+			t.Errorf("#%d: %q %v want %v", i, tt.in, err, tt.err)
+			continue
+		}
+		if !reflect.DeepEqual(v.Elem().Interface(), tt.out) {
+			t.Errorf("#%d: mismatch\nhave: %#+v\nwant: %#+v", i, v.Elem().Interface(), tt.out)
+		}
 	}
-	innerDict := map[string]string{"id": "abcdefghij0123456789"}
-	nestedDictionary := structNested{"aa", "q", "ping", innerDict}
+}
 
-	tests := []SVPair{
-		SVPair{"i100e", 100},
-		SVPair{"i-100e", -100},
-		SVPair{"1:a", "a"},
-		SVPair{"2:a\"", "a\""},
-		SVPair{"11:0123456789a", "0123456789a"},
-		SVPair{"le", []int64{}},
-		SVPair{"li1ei2ee", []int{1, 2}},
-		SVPair{"l3:abc3:defe", []string{"abc", "def"}},
-		SVPair{"li42e3:abce", []any{42, "abc"}},
-		SVPair{"de", map[string]any{}},
-		SVPair{"d3:cati1e3:dogi2ee", map[string]any{"cat": 1, "dog": 2}},
-		SVPair{"d1:ai10e1:b3:fooe", structA{10, "foo"}},
-		SVPair{"d1:ad2:id20:abcdefghij0123456789e1:q4:ping1:t2:aa1:y1:qe", nestedDictionary},
-	}
-	for _, sv := range tests {
-		if err := checkUnmarshal(sv.s, sv.v); err != nil {
-			t.Error(err.Error())
+type benchmarkStruct struct {
+	Q      string      `bencode:"q"`
+	AQ     string      `bencode:"aq,omitempty"`
+	Cookie string      `bencode:"cookie,omitempty"`
+	Hash   string      `bencode:"hash,omitempty"`
+	Args   interface{} `bencode:"args,omitempty"`
+	Txid   string      `bencode:"txid"`
+}
+
+var benchmarkTest = []byte("d1:q4:auth2:aq4:ping6:cookie10:13536270564:hash64:d1e4881e30895e2ee3e14c9bbce4537288a72a242dbd1786e8f1cc512e4cb4674:txid8:37199054e")
+
+func BenchmarkUnmarshal(b *testing.B) {
+	x := new(benchmarkStruct)
+	var err error
+	for i := 0; i < b.N; i++ {
+		if err = Unmarshal(benchmarkTest, x); err != nil {
+			b.Fatal(err.Error())
 		}
 	}
 }
