@@ -217,10 +217,7 @@ func typeFields(t reflect.Type) []field {
 		}
 	}
 
-	fields = out
-	sort.Sort(byIndex(fields))
-
-	return fields
+	return out
 }
 
 // dominantField looks through the fields, all of which are known to
