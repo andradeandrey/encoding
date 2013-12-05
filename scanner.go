@@ -267,8 +267,8 @@ func stateParseStringLen(s *scanner, c int) int {
 	if c == ':' {
 		var err error
 		if s.strLen, err = strconv.Atoi(string(s.strLenB)); err != nil {
-			// BUG(emery): don't panic
-			panic(err)
+			s.err = err
+			return scanError
 		}
 		//s.strLen+
 		s.step = stateParseString
@@ -295,8 +295,8 @@ func stateParseKeyLen(s *scanner, c int) int {
 	if c == ':' {
 		var err error
 		if s.strLen, err = strconv.Atoi(string(s.strLenB)); err != nil {
-			// BUG(emery): don't panic
-			panic(err)
+			s.err = err
+			return scanError
 		}
 		s.step = stateParseKey
 		return scanEndKeyLen

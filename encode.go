@@ -45,40 +45,80 @@ func (enc *Encoder) Encode(v interface{}) error {
 
 // Marshal returns a bencoded form of x.
 //
-// Marshal traverses the value x recursively.
+// Marshal traverses the value v recursively using the the following
+// type-dependent encodings:
 //
-// Marshal uses the following type-dependent encodings:
+// Integer types encode as bencode integers.
 //
-// Floating point, integer, and Number values encode as bencode numbers.
+// String and []byte values encode as bencode strings.
 //
-// String values encode as bencode strings.
+// Struct values encode as bencode dictionaries. Each exported struct
+// field becomes a member of the object unless
+//   - the field's tag is "-", or
+//   - the field is empty and its tag specifies the "omitempty" option.
+// The empty values are false, 0, any nil pointer or interface value,
+// and any array, slice, string, or map with zero length.
+// The values default key string is the struct field name but can be
+// specified in the struct field's tag value. The "bencode" key in the
+// struct field's tag value is the key name, followed by an optional
+// comma and options. Examples:
 //
-// Array and slice values encode as bencode arrays.
+//   // Field is ignored by this package.
+//   Field int `bencode:"-"`
 //
-// Struct values encode as bencode maps. Each exported struct field
-// becomes a member of the object.
-// The object's default key string is the struct field name
-// but can be specified in the struct field's tag value. The text of
-// the struct field's tag value is the key name. Examples:
-//
-//   // Field appears in bencode as key "Field".
-//   Field int
-//
-//   // Field appears in bencode as key "myName".
+//   // Field appears in bencode dictionaries as "6:myName".
 //   Field int `bencode:"myName"`
 //
-// Anonymous struct fields are ignored.
+//   // Field appears in bencode dictionaries as "6:myName" and
+//   // will be omitted if it's value is empty,
+//   // as defined above.
+//   Field int `bencode"myName,omitEmpty"`
+//
+// // Field appears in bencode dictionaries as "5:Field" (the default),
+// // but the field is skipped if empty.
+// // Note the leading comma.
+// Field int `bencode:",omitempty"`
+// The key name will be used if it's a non-empty string consisting of
+// only Unicode letters, digits, dollar signs, percent signs, hyphens,
+// underscores and slashes.
+//
+// Anonymous struct fields are usually marshaled as if their inner exported fields
+// were fields in the outer struct, subject to the usual Go visibility rules amended
+// as described in the next paragraph.
+// An anonymous struct field with a name given in its bencode tag is treated as
+// having that name, rather than being anonymous.
+//
+// The Go visibility rules for struct fields are amended for bencode when
+// deciding which field to marshal or unmarshal. If there are
+// multiple fields at the same level, and that level is the least
+// nested (and would therefore be the nesting level selected by the
+// usual Go rules), the following extra rules apply:
+//
+// 1) Of those fields, if any are bencode-tagged, only tagged fields are considered,
+// even if there are multiple untagged fields that would otherwise conflict.
+// 2) If there is exactly one field (tagged or not according to the first rule), that is selected.
+// 3) Otherwise there are multiple fields, and all are ignored; no error occurs.
+//
+// Handling of anonymous struct fields is new in Go 1.1.
+// Prior to Go 1.1, anonymous struct fields were ignored. To force ignoring of
+// an anonymous struct field in both current and earlier versions, give the field
+// a bencode tag of "-".
 //
 // Map values encode as bencode objects.
 // The map's key type must be string; the object keys are used directly
 // as map keys.
 //
-// Boolean, Pointer, Interface, Channel, complex, and function values cannot
-// be encoded in bencode.
-// Attempting to encode such a value causes Marshal to return
-// a MarshalError.
+// Pointer values encode as the value pointed to.
+// A nil pointer encodes as the null bencode object.
 //
-// Bencode cannot represent cyclic data structures and Marshal does not
+// Interface values encode as the value contained in the interface.
+// A nil interface value encodes as the null bencode object.
+//
+// Channel, complex, and function values cannot be encoded in bencode.
+// Attempting to encode such a value causes Marshal to return
+// an UnsupportedTypeError.
+//
+// bencode cannot represent cyclic data structures and Marshal does not
 // handle them.  Passing cyclic structures to Marshal will result in
 // an infinite recursion.
 func Marshal(v interface{}) ([]byte, error) {

@@ -193,18 +193,26 @@ func (d *decodeState) saveError(err error) {
 }
 
 // skip reads d.data until it hits the given op code
-func (d *decodeState) skip(seekOp int) {
+func (d *decodeState) skip() { //seekOp int) {
+	var skipScan scanner
+	skipScan.reset()
+	skipScan.step = d.scan.step
+	d.scan.step = stateEndValue
+
+	var op int
 	for {
-		op := d.scan.step(&d.scan, int(d.data[d.off]))
-		d.off++
+		op = skipScan.step(&skipScan, int(d.data[d.off]))
 		switch op {
-		case seekOp:
+		case scanEnd:
 			return
 		case scanError:
-			d.error(d.scan.err)
-		case scanEnd:
-			d.error(errPhase)
+			d.error(skipScan.err)
 		}
+
+		if d.off > len(d.data) {
+			d.error(errors.New("reached end of data"))
+		}
+		d.off++
 	}
 }
 
@@ -214,33 +222,15 @@ func (d *decodeState) value(v reflect.Value) {
 	for v.Kind() == reflect.Ptr {
 		v = v.Elem()
 	}
-
-	c := int(d.data[d.off])
-	d.off++
-	op := d.scan.step(&d.scan, c)
+	var op int
 
 	if !v.IsValid() {
-		// skip beyond this value
-		switch op {
-		case scanBeginStringLen:
-			d.skip(scanEndString)
-
-		case scanBeginInteger:
-			d.skip(scanEndInteger)
-
-		case scanBeginList:
-			d.skip(scanEndList)
-
-		case scanBeginDict:
-			d.skip(scanEndDict)
-
-		case scanError:
-			d.error(d.scan.err)
-		default:
-			d.error(errPhase)
-		}
+		d.skip()
 		return
 	}
+
+	op = d.scan.step(&d.scan, int(d.data[d.off]))
+	d.off++
 
 	switch op {
 	case scanBeginStringLen:
@@ -330,12 +320,6 @@ func (d *decodeState) integer(v reflect.Value) {
 	s := string(d.readInteger())
 
 	switch k {
-	default:
-		d.error(&UnmarshalTypeError{"number " + s, v.Type()})
-
-	case reflect.String:
-		v.SetString(s)
-
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		n, err := strconv.ParseInt(s, 10, 64)
 		if err != nil {
@@ -353,9 +337,26 @@ func (d *decodeState) integer(v reflect.Value) {
 	case reflect.Float32, reflect.Float64:
 		n, err := strconv.ParseFloat(s, v.Type().Bits())
 		if err != nil || v.OverflowFloat(n) {
-			d.saveError(&UnmarshalTypeError{"number " + s, v.Type()})
+			d.saveError(&UnmarshalTypeError{"integer " + s, v.Type()})
 		}
 		v.SetFloat(n)
+
+	case reflect.String:
+		v.SetString(s)
+
+	case reflect.Bool:
+		switch s {
+		case "1", "true":
+			v.SetBool(true)
+			return
+		case "0":
+			v.SetBool(true)
+			return
+		}
+		fallthrough
+
+	default:
+		d.error(&UnmarshalTypeError{"integer " + s, v.Type()})
 	}
 }
 
@@ -580,7 +581,7 @@ Read:
 			c = int(d.data[d.off])
 			d.off++
 
-			switch d.scan.step(&d.scan, c) {
+			switch op := d.scan.step(&d.scan, c); op {
 			case scanEndDict:
 				break Read
 			case scanBeginKeyLen, scanParseKeyLen, scanParseKey:

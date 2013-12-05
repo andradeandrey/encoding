@@ -39,6 +39,24 @@ var tests = []test{
 	{in: "d3:cati1e3:dogi2ee", ptr: new(map[string]int), out: map[string]int{"cat": 1, "dog": 2}},
 }
 
+var afs = []byte("d18:availableFunctionsd18:AdminLog_subscribed4:filed8:requiredi0e4:type6:Stringe5:leveld8:requiredi0e4:type6:Stringe4:lined8:requiredi0e4:type3:Intee20:AdminLog_unsubscribed8:streamIdd8:requiredi1e4:type6:Stringee18:Admin_asyncEnabledde24:Admin_availableFunctionsd4:paged8:requiredi0e4:type3:Intee34:InterfaceController_disconnectPeerd6:pubkeyd8:requiredi1e4:type6:Stringee29:InterfaceController_peerStatsd4:paged8:requiredi0e4:type3:Intee17:SwitchPinger_pingd4:datad8:requiredi0e4:type6:Stringe4:pathd8:requiredi1e4:type6:Stringe7:timeoutd8:requiredi0e4:type3:Intee16:UDPInterface_newd11:bindAddressd8:requiredi0e4:type6:Stringeee4:morei1e4:txid8:c37b0faae")
+
+type outer struct {
+	More bool   `bencode:"more"`
+	Txid string `bencode:"txid"`
+}
+
+func TestNesting(t *testing.T) {
+	o := new(outer)
+	err := Unmarshal(afs, o)
+	if err != nil {
+		t.Fatal("error unmarshaling nested struct", err)
+	}
+	if o.Txid != "c37b0faa" {
+		t.Errorf("got txid %q", o.Txid)
+	}
+}
+
 func TestMarshal(t *testing.T) {
 	buf := new(bytes.Buffer)
 	enc := NewEncoder(buf)
@@ -104,7 +122,7 @@ func BenchmarkUnmarshal(b *testing.B) {
 	x := new(benchmarkStruct)
 	var err error
 	for i := 0; i < b.N; i++ {
-		if err = Unmarshal(benchmarkTest, x); err != nil {
+		if err = Unmarshal(benchmarkTest, *x); err != nil {
 			b.Fatal(err.Error())
 		}
 	}
