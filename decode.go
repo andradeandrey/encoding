@@ -162,8 +162,6 @@ type decodeState struct {
 	data       []byte
 	off        int // read offset in data
 	scan       scanner
-	tmpstr     string // scratch space to avoid some allocations
-	op         int
 	savedError error
 }
 
@@ -182,14 +180,6 @@ func (d *decodeState) init(data []byte) *decodeState {
 // error aborts the decoding by panicking with err.
 func (d *decodeState) error(err error) {
 	panic(err)
-}
-
-// saveError saves the first err it is called with,
-// for reporting at the end of the unmarshal.
-func (d *decodeState) saveError(err error) {
-	if d.savedError == nil {
-		d.savedError = err
-	}
 }
 
 // skip reads d.data until it hits the given op code
@@ -337,7 +327,7 @@ func (d *decodeState) integer(v reflect.Value) {
 	case reflect.Float32, reflect.Float64:
 		n, err := strconv.ParseFloat(s, v.Type().Bits())
 		if err != nil || v.OverflowFloat(n) {
-			d.saveError(&UnmarshalTypeError{"integer " + s, v.Type()})
+			d.error(&UnmarshalTypeError{"integer " + s, v.Type()})
 		}
 		v.SetFloat(n)
 
@@ -411,7 +401,6 @@ func (d *decodeState) string(v reflect.Value) {
 	case reflect.Interface:
 		if v.NumMethod() != 0 {
 			d.error(&UnmarshalTypeError{"string", v.Type()})
-			return
 		}
 		x := d.readString()
 		v.Set(reflect.ValueOf(x))
@@ -420,6 +409,7 @@ func (d *decodeState) string(v reflect.Value) {
 
 // list consumes a list from d.data[d.off-1:], decoding into the value v.
 func (d *decodeState) list(v reflect.Value) {
+
 	// Check type of target.
 	switch v.Kind() {
 	case reflect.Interface:
@@ -432,37 +422,23 @@ func (d *decodeState) list(v reflect.Value) {
 		// Otherwilse it's invalid
 		fallthrough
 	default:
-		d.saveError(&UnmarshalTypeError{"list", v.Type()})
-		return
+		d.error(&UnmarshalTypeError{"list", v.Type()})
 
 	case reflect.Array:
 	case reflect.Slice:
-		break
 	}
 
-	var c, i int
-	var f func(reflect.Value)
+	var c, op int
+	i := v.Len()
 Read:
 	for {
 		c = int(d.data[d.off])
 		d.off++
+		op = d.scan.step(&d.scan, c)
 
-		switch d.scan.step(&d.scan, c) {
-		case scanEndList, scanEndValue:
+		switch op {
+		case scanEndList:
 			break Read
-
-		case scanBeginStringLen:
-			f = d.string
-		case scanBeginInteger:
-			f = d.integer
-		case scanBeginList:
-			f = d.list
-		case scanBeginDict:
-			f = d.dict
-		case scanError:
-			d.error(d.scan.err)
-		default:
-			d.error(errPhase)
 		}
 
 		// Get element of array, growing if necessary.
@@ -482,12 +458,39 @@ Read:
 			}
 		}
 
+		var subv reflect.Value
 		if i < v.Len() {
 			// Decode into element.
-			f(v.Index(i))
+			subv = v.Index(i)
 		} else {
 			// Ran out of fixed array: skip.
-			d.value(reflect.Value{})
+			subv = reflect.Value{}
+		}
+
+		for subv.Kind() == reflect.Ptr || v.Kind() == reflect.Interface {
+			if subv.IsNil() {
+				subv.Set(reflect.New(subv.Type().Elem()))
+			}
+			subv = subv.Elem()
+		}
+		switch op {
+		case scanBeginStringLen:
+			d.string(subv)
+
+		case scanBeginInteger:
+			d.integer(subv)
+
+		case scanBeginList:
+			d.list(subv)
+
+		case scanBeginDict:
+			d.dict(subv)
+
+		case scanError:
+			d.error(d.scan.err)
+		default:
+			d.error(errPhase)
+
 		}
 		i++
 	}
@@ -520,7 +523,7 @@ Read:
 		c = int(d.data[d.off])
 		d.off++
 
-		switch d.scan.step(&d.scan, c) {
+		switch op := d.scan.step(&d.scan, c); op {
 		case scanEndList:
 			break Read
 
@@ -557,17 +560,16 @@ func (d *decodeState) dict(v reflect.Value) {
 		// map must have string kind
 		t := v.Type()
 		if t.Key().Kind() != reflect.String {
-			d.saveError(&UnmarshalTypeError{"dictionary", v.Type()})
-			break
+			d.error(&UnmarshalTypeError{"dictionary", v.Type()})
 		}
 		if v.IsNil() {
 			v.Set(reflect.MakeMap(t))
 		}
+
 	case reflect.Struct:
 
 	default:
-		d.saveError(&UnmarshalTypeError{"dictionary", v.Type()})
-		return
+		d.error(&UnmarshalTypeError{"dictionary", v.Type()})
 	}
 
 	var mapElem reflect.Value

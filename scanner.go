@@ -62,11 +62,6 @@ type scanner struct {
 	// Error that happened, if any.
 	err error
 
-	// 1-byte redo (see undo method)
-	redo      bool
-	redoCode  int
-	redoState func(*scanner, int) int
-
 	remain  int
 	strLenB []byte
 	strLen  int
@@ -129,7 +124,6 @@ func (s *scanner) reset() {
 	s.step = stateBeginValue
 	s.parseState = s.parseState[0:0]
 	s.err = nil
-	s.redo = false
 	s.endTop = false
 }
 
@@ -174,7 +168,6 @@ func (s *scanner) pushParseState(p int) {
 func (s *scanner) popParseState() {
 	n := len(s.parseState) - 1
 	s.parseState = s.parseState[0:n]
-	s.redo = false
 	if n == 0 {
 		s.step = stateEndTop
 		s.endTop = true
@@ -191,16 +184,13 @@ func stateBeginValue(s *scanner, c int) int {
 		s.pushParseState(parseInteger)
 		return scanBeginInteger
 	case 'l':
-		s.step = stateBeginValue
+		s.step = stateBeginList
 		s.pushParseState(parseListValue)
 		return scanBeginList
 	case 'd':
 		s.step = stateBeginDictKey
 		s.pushParseState(parseDictKey)
 		return scanBeginDict
-	case 'e':
-		s.popParseState()
-		return scanEndValue
 	}
 
 	if c >= '0' && c <= '9' {
@@ -235,11 +225,12 @@ func stateEndValue(s *scanner, c int) int {
 		return stateBeginDictKey(s, c)
 
 	case parseListValue:
-		s.step = stateBeginValue
 		if c == 'e' {
 			s.popParseState()
 			return scanEndList
 		}
+		s.step = stateBeginValue
+		//s.pushParseState(parseListValue)
 		return stateBeginValue(s, c)
 	}
 	return s.error(c, "")
@@ -289,6 +280,14 @@ func stateParseString(s *scanner, c int) int {
 		return scanEndString
 	}
 	return scanParseString
+}
+
+func stateBeginList(s *scanner, c int) int {
+	if c == 'e' {
+		s.popParseState()
+		return scanEndList
+	}
+	return stateBeginValue(s, c)
 }
 
 func stateParseKeyLen(s *scanner, c int) int {
