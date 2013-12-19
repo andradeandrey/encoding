@@ -9,6 +9,7 @@ package bencode
 
 import (
 	"bytes"
+	"encoding"
 	"errors"
 	"io"
 	"reflect"
@@ -209,17 +210,12 @@ func (d *decodeState) skip() { //seekOp int) {
 // readValue decodes the next item from d.data[d.off:] into v,
 // updating d.off.
 func (d *decodeState) value(v reflect.Value) {
-	for v.Kind() == reflect.Ptr {
-		v = v.Elem()
-	}
-	var op int
-
 	if !v.IsValid() {
 		d.skip()
 		return
 	}
 
-	op = d.scan.step(&d.scan, int(d.data[d.off]))
+	op := d.scan.step(&d.scan, int(d.data[d.off]))
 	d.off++
 
 	switch op {
@@ -301,6 +297,10 @@ Read:
 
 // integer consumes an integer from d.data[d.off:], decoding into the value v.
 func (d *decodeState) integer(v reflect.Value) {
+	for v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
 	k := v.Kind()
 	if k == reflect.Interface {
 		v.Set(reflect.ValueOf(d.integerInterface()))
@@ -385,15 +385,40 @@ Read:
 	return d.data[i:d.off]
 }
 
+var textUnmarshalerType = reflect.TypeOf(new(encoding.TextUnmarshaler)).Elem()
+
 // string consumes a string from d.data[d.off:], decoding into the value v.
 func (d *decodeState) string(v reflect.Value) {
-	for v.Kind() == reflect.Ptr {
+	for {
+		if v.Type().Implements(textUnmarshalerType) {
+			if v.Kind() == reflect.Ptr && v.IsNil() {
+				v.Set(reflect.New(v.Type().Elem()))
+			}
+
+			//if u, ok := v.Interface().(encoding.TextUnmarshaler); ok {
+			u := v.Interface().(encoding.TextUnmarshaler)
+			if err := u.UnmarshalText(d.readString()); err != nil {
+				d.error(err)
+			}
+			return
+		}
+
+		if v.Kind() != reflect.Ptr {
+			break
+		}
 		v = v.Elem()
 	}
 
 	switch v.Kind() {
 	default:
 		d.error(&UnmarshalTypeError{"string", v.Type()})
+
+	case reflect.Slice:
+		if v.Type() != byteSliceType {
+			d.error(&UnmarshalTypeError{"string", v.Type()})
+		}
+
+		v.SetBytes(d.readString())
 
 	case reflect.String:
 		v.SetString(string(d.readString()))
@@ -402,6 +427,7 @@ func (d *decodeState) string(v reflect.Value) {
 		if v.NumMethod() != 0 {
 			d.error(&UnmarshalTypeError{"string", v.Type()})
 		}
+
 		x := d.readString()
 		v.Set(reflect.ValueOf(x))
 	}
@@ -409,6 +435,9 @@ func (d *decodeState) string(v reflect.Value) {
 
 // list consumes a list from d.data[d.off-1:], decoding into the value v.
 func (d *decodeState) list(v reflect.Value) {
+	for v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
 
 	// Check type of target.
 	switch v.Kind() {
@@ -548,6 +577,10 @@ Read:
 
 // dict consumes a dict from d.data[d.off:], decoding into the value v.
 func (d *decodeState) dict(v reflect.Value) {
+	for v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
 	if v.Kind() == reflect.Interface && v.NumMethod() == 0 {
 		// Decoding into nil interface? Switch to non-reflect code.
 		v.Set(reflect.ValueOf(d.dictInterface()))

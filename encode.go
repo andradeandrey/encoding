@@ -4,6 +4,7 @@ package bencode
 
 import (
 	"bytes"
+	"encoding"
 	"fmt"
 	"io"
 	"reflect"
@@ -192,8 +193,24 @@ func isEmptyValue(v reflect.Value) bool {
 	return false
 }
 
+var textMarshalerType = reflect.TypeOf(new(encoding.TextMarshaler)).Elem()
+
 // reflectValue writes the value in v to the output.
 func (e *encodeState) reflectValue(v reflect.Value) {
+	if v.Type().Implements(textMarshalerType) {
+		u := v.Interface().(encoding.TextMarshaler)
+		b, err := u.MarshalText()
+		if err != nil {
+			e.error(err)
+		}
+		fmt.Fprintf(e, "%d:", len(b))
+		_, err = e.Write(b)
+		if err != nil {
+			e.error(err)
+		}
+		return
+	}
+
 	switch v.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
 		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -233,7 +250,10 @@ func (e *encodeState) reflectValue(v reflect.Value) {
 	case reflect.Slice, reflect.Array:
 		if t := v.Type(); t == byteSliceType || t.Elem().Kind() == reflect.Uint8 {
 			fmt.Fprintf(e, "%d:", v.Len())
-			e.Write(v.Bytes())
+			_, err := e.Write(v.Bytes())
+			if err != nil {
+				e.error(err)
+			}
 			return
 		}
 		e.WriteByte('l')

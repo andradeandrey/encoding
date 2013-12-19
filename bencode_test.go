@@ -2,6 +2,8 @@ package bencode
 
 import (
 	"bytes"
+	"encoding"
+	"net"
 	"reflect"
 	"testing"
 )
@@ -30,6 +32,7 @@ var tests = []test{
 	{in: "i0e", ptr: new(int), out: 0},
 	{in: "1:a", ptr: new(string), out: "a"},
 	{in: "2:a\"", ptr: new(string), out: "a\""},
+	{in: "3:abc", ptr: new([]byte), out: []byte("abc")},
 	{in: "11:0123456789a", ptr: new(interface{}), out: []byte("0123456789a")},
 	{in: "le", ptr: new([]int64), out: []int64{}},
 	{in: "li1ei2ee", ptr: new([]int), out: []int{1, 2}},
@@ -37,6 +40,7 @@ var tests = []test{
 	//{in: "li42e3:abce", ptr: new([]interface{}), out: []interface{}{42, []byte("abc")}},
 	{in: "de", ptr: new(map[string]interface{}), out: make(map[string]interface{})},
 	{in: "d3:cati1e3:dogi2ee", ptr: new(map[string]int), out: map[string]int{"cat": 1, "dog": 2}},
+	{in: "9:127.0.0.1", ptr: new(net.IP), out: net.ParseIP("127.0.0.1")},
 }
 
 var afs = []byte("d18:availableFunctionsd18:AdminLog_subscribed4:filed8:requiredi0e4:type6:Stringe5:leveld8:requiredi0e4:type6:Stringe4:lined8:requiredi0e4:type3:Intee20:AdminLog_unsubscribed8:streamIdd8:requiredi1e4:type6:Stringee18:Admin_asyncEnabledde24:Admin_availableFunctionsd4:paged8:requiredi0e4:type3:Intee34:InterfaceController_disconnectPeerd6:pubkeyd8:requiredi1e4:type6:Stringee29:InterfaceController_peerStatsd4:paged8:requiredi0e4:type3:Intee17:SwitchPinger_pingd4:datad8:requiredi0e4:type6:Stringe4:pathd8:requiredi1e4:type6:Stringe7:timeoutd8:requiredi0e4:type3:Intee16:UDPInterface_newd11:bindAddressd8:requiredi0e4:type6:Stringeee4:morei1e4:txid8:c37b0faae")
@@ -107,6 +111,59 @@ func TestUnmarshal(t *testing.T) {
 	}
 }
 
+type testInterface struct {
+	s string
+}
+
+func (i *testInterface) MarshalText() (text []byte, err error) {
+	return []byte(i.s), nil
+}
+
+func (i *testInterface) UnmarshalText(b []byte) error {
+	i.s = string(b)
+	return nil
+}
+
+func TestTextInterface(t *testing.T) {
+	var controlA encoding.TextMarshaler
+	controlA = &testInterface{"The Cultural Myth of Female Hair in the Victorian Imagination"}
+
+	bA, err := Marshal(controlA)
+	if err != nil {
+		t.Error("failed to marshal", err)
+		return
+	}
+
+	controlB := &testInterface{"The Cultural Myth of Female Hair in the Victorian Imagination"}
+
+	bB, err := Marshal(controlB)
+	if err != nil {
+		t.Error("failed to marshal", err)
+		return
+	}
+
+	var testA encoding.TextUnmarshaler
+	testA = new(testInterface)
+
+	err = Unmarshal(bB, &testA)
+	if err != nil {
+		t.Error("failed to unmarshal what was marshaled,", err)
+		return
+	}
+
+	testB := new(testInterface)
+
+	err = Unmarshal(bA, &testB)
+	if err != nil {
+		t.Error("failed to unmarshal what was marshaled,", err)
+		return
+	}
+
+	if testB.s != controlB.s {
+		t.Errorf("wanted %q, got %q", controlB.s, testB.s)
+	}
+}
+
 type benchmarkStruct struct {
 	Q      string      `bencode:"q"`
 	AQ     string      `bencode:"aq,omitempty"`
@@ -122,7 +179,7 @@ func BenchmarkUnmarshal(b *testing.B) {
 	x := new(benchmarkStruct)
 	var err error
 	for i := 0; i < b.N; i++ {
-		if err = Unmarshal(benchmarkTest, *x); err != nil {
+		if err = Unmarshal(benchmarkTest, x); err != nil {
 			b.Fatal(err.Error())
 		}
 	}
