@@ -1,5 +1,3 @@
-// Copyright © 2013 Emery Hemingway
-
 package bencode
 
 import (
