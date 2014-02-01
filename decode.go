@@ -61,14 +61,21 @@ func (dec *Decoder) readValue() (int, error) {
 Input:
 	for {
 		// Look in the buffer for a new value.
-		for i, c := range dec.buf[scanp:] {
-			dec.scan.bytes++
-			v := dec.scan.step(&dec.scan, int(c))
-			if v == scanEnd {
+		buf := dec.buf[scanp:]
+		for i := 0; i < len(buf); i++ {
+			op := dec.scan.step(&dec.scan, int(buf[i]))
+			if op > 0 {
+				dec.scan.bytes += int64(op)
+				i += op
+				continue
+			}
+			if op == scanEnd {
+				dec.scan.bytes++
 				scanp += i
 				break Input
 			}
-			if v == scanError {
+			if op == scanError {
+				dec.scan.bytes++
 				dec.err = dec.scan.err
 				return 0, dec.scan.err
 			}
@@ -177,7 +184,7 @@ func (d *decodeState) error(err error) {
 }
 
 // skip reads d.data until it hits the given op code
-func (d *decodeState) skip() { //seekOp int) {
+func (d *decodeState) skip() {
 	var skipScan scanner
 	skipScan.reset()
 	skipScan.step = d.scan.step
@@ -185,16 +192,20 @@ func (d *decodeState) skip() { //seekOp int) {
 
 	var op int
 	for {
+		if d.off > len(d.data) {
+			d.error(errors.New("reached end of data"))
+		}
+
 		op = skipScan.step(&skipScan, int(d.data[d.off]))
+		if op > 0 {
+			d.off += op
+		}
+
 		switch op {
 		case scanEnd:
 			return
 		case scanError:
 			d.error(skipScan.err)
-		}
-
-		if d.off > len(d.data) {
-			d.error(errors.New("reached end of data"))
 		}
 		d.off++
 	}
@@ -355,24 +366,25 @@ func (d *decodeState) integerInterface() (x interface{}) {
 }
 
 func (d *decodeState) readString() []byte {
-	var c, i int
+	var c, i, op int
 Read:
 	for {
 		c = int(d.data[d.off])
 		d.off++
-		switch d.scan.step(&d.scan, c) {
-		case scanParseStringLen:
-			continue
-		case scanEndStringLen:
+		op = d.scan.step(&d.scan, c)
+		if op < 0 {
+			switch op {
+			case scanParseStringLen, scanParseString:
+				continue
+			case scanError:
+				d.error(d.scan.err)
+			default:
+				d.error(errPhase)
+			}
+		} else { // op was a string length
 			i = d.off
-
-		case scanParseString:
-		case scanEndString:
+			d.off += op
 			break Read
-		case scanError:
-			d.error(d.scan.err)
-		default:
-			d.error(errPhase)
 		}
 	}
 	return d.data[i:d.off]
@@ -600,7 +612,7 @@ func (d *decodeState) dict(v reflect.Value) {
 
 	var mapElem reflect.Value
 	var key string
-	var c, p int
+	var c, op, p int
 Read:
 	for {
 		// Read string key.
@@ -608,14 +620,18 @@ Read:
 		for {
 			c = int(d.data[d.off])
 			d.off++
-
-			switch op := d.scan.step(&d.scan, c); op {
-			case scanEndDict:
-				break Read
-			case scanBeginKeyLen, scanParseKeyLen, scanParseKey:
-			case scanEndKeyLen:
+			op = d.scan.step(&d.scan, c)
+			if op < 0 {
+				switch op {
+				case scanEndDict:
+					break Read
+				case scanBeginKeyLen, scanParseKeyLen, scanParseKey:
+				case scanEndKeyLen:
+					p = d.off
+				}
+			} else { //op was the key string length
 				p = d.off
-			case scanEndKey:
+				d.off += op
 				break ReadKey
 			}
 		}
@@ -675,21 +691,25 @@ Read:
 func (d *decodeState) dictInterface() map[string]interface{} {
 	m := make(map[string]interface{})
 	var key string
-	var c, p int
+	var c, op, p int
 Read:
 	for {
 	ReadKey:
 		for {
 			c = int(d.data[d.off])
 			d.off++
-
-			switch d.scan.step(&d.scan, c) {
-			case scanEndDict:
-				break Read
-			case scanBeginKeyLen, scanParseKeyLen, scanParseKey:
-			case scanEndKeyLen:
+			op = d.scan.step(&d.scan, c)
+			if op < 0 {
+				switch op {
+				case scanEndDict:
+					break Read
+				case scanBeginKeyLen, scanParseKeyLen, scanParseKey:
+				case scanEndKeyLen:
+					p = d.off
+				}
+			} else { // op was a string length
 				p = d.off
-			case scanEndKey:
+				d.off += op
 				break ReadKey
 			}
 		}

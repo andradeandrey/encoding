@@ -6,9 +6,15 @@ import "strconv"
 // scan is passed in for use by checkValid to avoid an allocation.
 func checkValid(data []byte, scan *scanner) error {
 	scan.reset()
-	for _, c := range data {
+	var c, op int
+	for i := 0; i < len(data); i++ {
+		c = int(data[i])
 		scan.bytes++
-		if scan.step(scan, int(c)) == scanError {
+		op = scan.step(scan, int(c))
+		if op > 0 {
+			scan.bytes += int64(op)
+			i += op
+		} else if op == scanError {
 			return scan.err
 		}
 	}
@@ -23,10 +29,14 @@ func checkValid(data []byte, scan *scanner) error {
 // scan is passed in for use by nextValue to avoid an allocation.
 func nextValue(data []byte, scan *scanner) (value, rest []byte, err error) {
 	scan.reset()
-	for i, c := range data {
-		v := scan.step(scan, int(c))
-		if v >= scanEnd {
-			switch v {
+	var c, op int
+	for i := 0; i < len(data); i++ {
+		c = int(data[i])
+		op = scan.step(scan, c)
+		if op > 0 {
+			i += op
+		} else if op <= scanEnd {
+			switch op {
 			case scanError:
 				return nil, nil, scan.err
 			case scanEnd:
@@ -62,9 +72,8 @@ type scanner struct {
 	// Error that happened, if any.
 	err error
 
-	remain  int
+	// storage for string length numeral bytes
 	strLenB []byte
-	strLen  int
 
 	// total bytes consumed, updated by decoder.Decode
 	bytes int64
@@ -79,31 +88,29 @@ type scanner struct {
 // every subsequent call will retern scanError too.
 const (
 	// Continue.
-	scanBeginStringLen = iota
-	scanParseStringLen
-	scanEndStringLen
-	scanParseString
-	scanEndString
-	scanBeginInteger
-	scanParseInteger
-	scanEndInteger
-	scanBeginList
-	scanEndList
-	scanEndValue
-	scanBeginDict
-	scanBeginDictKey
-	scanDictKey
-	scanBeginKeyLen
-	scanParseKeyLen
-	scanEndKeyLen
-	scanParseKey
-	scanEndKey
-	scanDictValue
-	scanEndDict
+	scanBeginStringLen = 0 - iota
+	scanParseStringLen = 0 - iota
+	scanEndStringLen   = 0 - iota
+	scanParseString    = 0 - iota
+	scanBeginInteger   = 0 - iota
+	scanParseInteger   = 0 - iota
+	scanEndInteger     = 0 - iota
+	scanBeginList      = 0 - iota
+	scanEndList        = 0 - iota
+	scanEndValue       = 0 - iota
+	scanBeginDict      = 0 - iota
+	scanBeginDictKey   = 0 - iota
+	scanDictKey        = 0 - iota
+	scanBeginKeyLen    = 0 - iota
+	scanParseKeyLen    = 0 - iota
+	scanEndKeyLen      = 0 - iota
+	scanParseKey       = 0 - iota
+	scanDictValue      = 0 - iota
+	scanEndDict        = 0 - iota
 
 	// Stop.
-	scanEnd
-	scanError // hit an error, scanner.err.
+	scanEnd   = 0 - iota
+	scanError = 0 - iota // hit an error, scanner.err.
 )
 
 // These values are stored in the parseState stack.
@@ -257,29 +264,21 @@ func stateParseInteger(s *scanner, c int) int {
 func stateParseStringLen(s *scanner, c int) int {
 	if c == ':' {
 		var err error
-		if s.strLen, err = strconv.Atoi(string(s.strLenB)); err != nil {
+		var l int
+		if l, err = strconv.Atoi(string(s.strLenB)); err != nil {
 			s.err = err
 			return scanError
 		}
-		//s.strLen+
-		s.step = stateParseString
-		return scanEndStringLen
+		// decoder should read this string as a slice
+		s.popParseState()
+		s.step = stateEndValue
+		return l
 	}
 	if c >= '0' && c <= '9' {
 		s.strLenB = append(s.strLenB, byte(c))
 		return scanParseStringLen
 	}
 	return s.error(c, "in string length")
-}
-
-func stateParseString(s *scanner, c int) int {
-	s.strLen--
-	if s.strLen < 1 {
-		s.popParseState()
-		s.step = stateEndValue
-		return scanEndString
-	}
-	return scanParseString
 }
 
 func stateBeginList(s *scanner, c int) int {
@@ -293,29 +292,22 @@ func stateBeginList(s *scanner, c int) int {
 func stateParseKeyLen(s *scanner, c int) int {
 	if c == ':' {
 		var err error
-		if s.strLen, err = strconv.Atoi(string(s.strLenB)); err != nil {
+		var l int
+		if l, err = strconv.Atoi(string(s.strLenB)); err != nil {
 			s.err = err
 			return scanError
 		}
-		s.step = stateParseKey
-		return scanEndKeyLen
+		// decoder should read this chunk at once
+		s.popParseState()
+		s.step = stateBeginValue
+		s.pushParseState(parseDictValue)
+		return l
 	}
 	if c >= '0' && c <= '9' {
 		s.strLenB = append(s.strLenB, byte(c))
 		return scanParseKeyLen
 	}
 	return s.error(c, "in dicionary key length")
-}
-
-func stateParseKey(s *scanner, c int) int {
-	s.strLen--
-	if s.strLen < 1 {
-		s.popParseState()
-		s.step = stateBeginValue
-		s.pushParseState(parseDictValue)
-		return scanEndKey
-	}
-	return scanParseKey
 }
 
 func stateBeginDictKey(s *scanner, c int) int {

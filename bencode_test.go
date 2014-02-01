@@ -54,7 +54,7 @@ func TestNesting(t *testing.T) {
 	o := new(outer)
 	err := Unmarshal(afs, o)
 	if err != nil {
-		t.Fatal("error unmarshaling nested struct", err)
+		t.Fatal("error unmarshaling nested struct,", err)
 	}
 	if o.Txid != "c37b0faa" {
 		t.Errorf("got txid %q", o.Txid)
@@ -70,7 +70,7 @@ func TestMarshal(t *testing.T) {
 		in := []byte(tt.in)
 		if err := checkValid(in, &scan); err != nil {
 			if !reflect.DeepEqual(err, tt.err) {
-				t.Errorf("#%d: checkValid: %#v", i, err)
+				t.Errorf("#%d: %s checkValid: %#v", i, tt.in, err)
 				continue
 			}
 		}
@@ -92,7 +92,7 @@ func TestUnmarshal(t *testing.T) {
 		in := []byte(tt.in)
 		if err := checkValid(in, &scan); err != nil {
 			if !reflect.DeepEqual(err, tt.err) {
-				t.Errorf("#%d: checkValid: %#v", i, err)
+				t.Errorf("#%d: %s checkValid: %#v", i, tt.in, err)
 				continue
 			}
 		}
@@ -106,7 +106,7 @@ func TestUnmarshal(t *testing.T) {
 			continue
 		}
 		if !reflect.DeepEqual(v.Elem().Interface(), tt.out) {
-			t.Errorf("#%d: mismatch\nhave: %#+v\nwant: %#+v", i, v.Elem().Interface(), tt.out)
+			t.Errorf("#%d: %s mismatch\nhave: %#+v\nwant: %#+v", i, tt.in, v.Elem().Interface(), tt.out)
 		}
 	}
 }
