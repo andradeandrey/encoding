@@ -1,6 +1,7 @@
 package bencode
 
 import (
+	"fmt"
 	"bytes"
 	"encoding"
 	"net"
@@ -41,7 +42,28 @@ var tests = []test{
 	{in: "de", ptr: new(map[string]interface{}), out: make(map[string]interface{})},
 	{in: "d3:cati1e3:dogi2ee", ptr: new(map[string]int), out: map[string]int{"cat": 1, "dog": 2}},
 	{in: "9:127.0.0.1", ptr: new(net.IP), out: net.ParseIP("127.0.0.1")},
+	{in: "d1:i3:1231:m9:Arith.Adde", ptr: new(request), out: request{"Arith.Add", nil, "123"}},
 }
+
+type request struct {
+	Method string `bencode:"m"`
+	Params interface{} `bencode:"p,omitempty"`
+	Id     string `bencode:"i"`
+}
+
+func TestRequest(t *testing.T) {
+	var buf bytes.Buffer
+	var req request
+	dec := NewDecoder(&buf)
+	for i := 0; i < 8; i++ {
+	fmt.Fprintf(&buf, "d1:ii%de1:m9:Arith.Add1:pd1:Ai%de1:Bi%deee",
+		i, i, i+1)
+		if err := dec.Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 
 var afs = []byte("d18:availableFunctionsd18:AdminLog_subscribed4:filed8:requiredi0e4:type6:Stringe5:leveld8:requiredi0e4:type6:Stringe4:lined8:requiredi0e4:type3:Intee20:AdminLog_unsubscribed8:streamIdd8:requiredi1e4:type6:Stringee18:Admin_asyncEnabledde24:Admin_availableFunctionsd4:paged8:requiredi0e4:type3:Intee34:InterfaceController_disconnectPeerd6:pubkeyd8:requiredi1e4:type6:Stringee29:InterfaceController_peerStatsd4:paged8:requiredi0e4:type3:Intee17:SwitchPinger_pingd4:datad8:requiredi0e4:type6:Stringe4:pathd8:requiredi1e4:type6:Stringe7:timeoutd8:requiredi0e4:type3:Intee16:UDPInterface_newd11:bindAddressd8:requiredi0e4:type6:Stringeee4:morei1e4:txid8:c37b0faae")
 
