@@ -312,6 +312,9 @@ func stateParseKeyLen(s *scanner, c int) int {
 
 func stateBeginDictKey(s *scanner, c int) int {
 	if c == 'e' {
+		if len(s.parseState) == 0 {
+			return scanEnd
+		}
 		s.popParseState()
 		return scanEndDict
 	}

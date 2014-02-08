@@ -69,13 +69,13 @@ Input:
 				i += op
 				continue
 			}
+			dec.scan.bytes++
+
 			if op == scanEnd {
-				dec.scan.bytes++
 				scanp += i
 				break Input
 			}
 			if op == scanError {
-				dec.scan.bytes++
 				dec.err = dec.scan.err
 				return 0, dec.scan.err
 			}
@@ -127,6 +127,7 @@ func (e *InvalidUnmarshalError) Error() string {
 }
 
 func (d *decodeState) unmarshal(v interface{}) (err error) {
+
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(runtime.Error); ok {
@@ -240,6 +241,7 @@ func (d *decodeState) value(v reflect.Value) {
 
 	case scanError:
 		d.error(d.scan.err)
+
 	default:
 		d.error(errPhase)
 	}
@@ -583,6 +585,9 @@ Read:
 // dict consumes a dict from d.data[d.off:], decoding into the value v.
 func (d *decodeState) dict(v reflect.Value) {
 	for v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return
+		}
 		v = v.Elem()
 	}
 

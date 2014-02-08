@@ -1,9 +1,9 @@
 package bencode
 
 import (
-	"fmt"
 	"bytes"
 	"encoding"
+	"fmt"
 	"net"
 	"reflect"
 	"testing"
@@ -46,9 +46,9 @@ var tests = []test{
 }
 
 type request struct {
-	Method string `bencode:"m"`
+	Method string      `bencode:"m"`
 	Params interface{} `bencode:"p,omitempty"`
-	Id     string `bencode:"i"`
+	Id     string      `bencode:"i"`
 }
 
 func TestRequest(t *testing.T) {
@@ -56,14 +56,13 @@ func TestRequest(t *testing.T) {
 	var req request
 	dec := NewDecoder(&buf)
 	for i := 0; i < 8; i++ {
-	fmt.Fprintf(&buf, "d1:ii%de1:m9:Arith.Add1:pd1:Ai%de1:Bi%deee",
-		i, i, i+1)
+		fmt.Fprintf(&buf, "d1:ii%de1:m9:Arith.Add1:pd1:Ai%de1:Bi%deee",
+			i, i, i+1)
 		if err := dec.Decode(&req); err != nil {
 			t.Fatal(err)
 		}
 	}
 }
-
 
 var afs = []byte("d18:availableFunctionsd18:AdminLog_subscribed4:filed8:requiredi0e4:type6:Stringe5:leveld8:requiredi0e4:type6:Stringe4:lined8:requiredi0e4:type3:Intee20:AdminLog_unsubscribed8:streamIdd8:requiredi1e4:type6:Stringee18:Admin_asyncEnabledde24:Admin_availableFunctionsd4:paged8:requiredi0e4:type3:Intee34:InterfaceController_disconnectPeerd6:pubkeyd8:requiredi1e4:type6:Stringee29:InterfaceController_peerStatsd4:paged8:requiredi0e4:type3:Intee17:SwitchPinger_pingd4:datad8:requiredi0e4:type6:Stringe4:pathd8:requiredi1e4:type6:Stringe7:timeoutd8:requiredi0e4:type3:Intee16:UDPInterface_newd11:bindAddressd8:requiredi0e4:type6:Stringeee4:morei1e4:txid8:c37b0faae")
 
@@ -72,7 +71,7 @@ type outer struct {
 	Txid string `bencode:"txid"`
 }
 
-func TestNesting(t *testing.T) {
+func TestSkip(t *testing.T) {
 	o := new(outer)
 	err := Unmarshal(afs, o)
 	if err != nil {
@@ -130,6 +129,54 @@ func TestUnmarshal(t *testing.T) {
 		if !reflect.DeepEqual(v.Elem().Interface(), tt.out) {
 			t.Errorf("#%d: %s mismatch\nhave: %#+v\nwant: %#+v", i, tt.in, v.Elem().Interface(), tt.out)
 		}
+	}
+}
+
+type nestA struct {
+	A int
+	B int
+	C *nestB
+}
+
+type nestB struct {
+	D int
+	E int
+	F *nestA `bencode:",omitempty"`
+}
+
+func TestNesting(t *testing.T) {
+	var buf bytes.Buffer
+	enc := NewEncoder(&buf)
+	dec := NewDecoder(&buf)
+
+	var j int
+	top := new(nestA)
+	nest := top
+	for i := 0; i < 32; i++ {
+		nest.A = j
+		j++
+		nest.B = j
+		j++
+
+		nest.C = new(nestB)
+		nest.C.D = j
+		j++
+		nest.C.E = j
+		j++
+
+		if err := enc.Encode(top); err != nil {
+			t.Error("nesting:", err)
+			return
+		}
+
+		out := new(nestA)
+		if err := dec.Decode(out); err != nil {
+			t.Error("nesting:", err)
+			return
+		}
+
+		nest.C.F = new(nestA)
+		nest = nest.C.F
 	}
 }
 

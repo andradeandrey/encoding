@@ -265,9 +265,6 @@ func (e *encodeState) reflectValue(v reflect.Value) {
 		return
 
 	case reflect.Interface, reflect.Ptr:
-		if v.IsNil() {
-			return
-		}
 		e.reflectValue(v.Elem())
 
 	default:
