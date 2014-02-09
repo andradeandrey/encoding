@@ -56,31 +56,31 @@ func (dec *Decoder) Buffered() io.Reader {
 func (dec *Decoder) readValue() (int, error) {
 	dec.scan.reset()
 
-	scanp := 0
+	var scanp, op, n int
 	var err error
 Input:
 	for {
-		// Look in the buffer for a new value.
-		buf := dec.buf[scanp:]
-		for i := 0; i < len(buf); i++ {
-			op := dec.scan.step(&dec.scan, int(buf[i]))
-			if op > 0 {
+		for scanp < len(dec.buf) {
+			op = dec.scan.step(&dec.scan, int(dec.buf[scanp]))
+			scanp++
+			if op >= 0 {
 				dec.scan.bytes += int64(op)
-				i += op
-				continue
-			}
-			dec.scan.bytes++
+				scanp += op
+				if dec.scan.endTop {
+					break Input
+				}
+			} else {
+				dec.scan.bytes++
+				switch op {
+				case scanEnd:
+					break Input
 
-			if op == scanEnd {
-				scanp += i
-				break Input
-			}
-			if op == scanError {
-				dec.err = dec.scan.err
-				return 0, dec.scan.err
+				case scanError:
+					dec.err = dec.scan.err
+					return 0, dec.scan.err
+				}
 			}
 		}
-		scanp = len(dec.buf)
 
 		// Did the last read have an error?
 		// Delayed until now to allow buffer scan.
@@ -102,7 +102,6 @@ Input:
 		}
 
 		// Read. Delay error for the next interation (after scan).
-		var n int
 		n, err = dec.r.Read(dec.buf[len(dec.buf):cap(dec.buf)])
 		dec.buf = dec.buf[0 : len(dec.buf)+n]
 	}
@@ -127,7 +126,6 @@ func (e *InvalidUnmarshalError) Error() string {
 }
 
 func (d *decodeState) unmarshal(v interface{}) (err error) {
-
 	defer func() {
 		if r := recover(); r != nil {
 			if _, ok := r.(runtime.Error); ok {
@@ -184,7 +182,7 @@ func (d *decodeState) error(err error) {
 	panic(err)
 }
 
-// skip reads d.data until it hits the given op code
+// skip reads d.data with a fresh scanner, skimming over the next value
 func (d *decodeState) skip() {
 	var skipScan scanner
 	skipScan.reset()
@@ -193,30 +191,38 @@ func (d *decodeState) skip() {
 
 	var op int
 	for {
-		if d.off > len(d.data) {
-			d.error(errors.New("reached end of data"))
-		}
-
 		op = skipScan.step(&skipScan, int(d.data[d.off]))
-		if op > 0 {
-			d.off += op
-		}
-
-		switch op {
-		case scanEnd:
-			return
-		case scanError:
-			d.error(skipScan.err)
-		}
 		d.off++
+		if op >= 0 {
+			d.off += op
+			if skipScan.endTop {
+				return
+			}
+		} else {
+			switch op {
+			case scanEnd:
+				return
+			case scanError:
+				d.error(skipScan.err)
+			}
+		}
 	}
 }
 
-// readValue decodes the next item from d.data[d.off:] into v,
-// updating d.off.
+var (
+	unmarshalerType     = reflect.TypeOf(new(Unmarshaler)).Elem()
+	textUnmarshalerType = reflect.TypeOf(new(encoding.TextUnmarshaler)).Elem()
+)
+
+// value decodes the next item from d.data[d.off:] into v, updating d.off.
 func (d *decodeState) value(v reflect.Value) {
 	if !v.IsValid() {
 		d.skip()
+		return
+	}
+
+	if v.Type().Implements(unmarshalerType) {
+		d.unmarshaler(v)
 		return
 	}
 
@@ -288,14 +294,14 @@ Read:
 		c = int(d.data[d.off])
 		d.off++
 		switch d.scan.step(&d.scan, c) {
+		case scanParseInteger:
+			continue
+		case scanEndInteger, scanEnd:
+			break Read
 		case scanError:
 			d.error(d.scan.err)
 		default:
 			d.error(errPhase)
-		case scanParseInteger:
-			continue
-		case scanEndInteger:
-			break Read
 		}
 	}
 	return d.data[i : d.off-1]
@@ -374,7 +380,11 @@ Read:
 		c = int(d.data[d.off])
 		d.off++
 		op = d.scan.step(&d.scan, c)
-		if op < 0 {
+		if op >= 0 {
+			i = d.off
+			d.off += op
+			break Read
+		} else {
 			switch op {
 			case scanParseStringLen, scanParseString:
 				continue
@@ -383,16 +393,10 @@ Read:
 			default:
 				d.error(errPhase)
 			}
-		} else { // op was a string length
-			i = d.off
-			d.off += op
-			break Read
 		}
 	}
 	return d.data[i:d.off]
 }
-
-var textUnmarshalerType = reflect.TypeOf(new(encoding.TextUnmarshaler)).Elem()
 
 // string consumes a string from d.data[d.off:], decoding into the value v.
 func (d *decodeState) string(v reflect.Value) {
@@ -473,7 +477,7 @@ Read:
 		op = d.scan.step(&d.scan, c)
 
 		switch op {
-		case scanEndList:
+		case scanEndList, scanEnd:
 			break Read
 		}
 
@@ -626,18 +630,20 @@ Read:
 			c = int(d.data[d.off])
 			d.off++
 			op = d.scan.step(&d.scan, c)
-			if op < 0 {
+			if op > 0 {
+				p = d.off
+				d.off += op
+				break ReadKey
+			} else {
 				switch op {
-				case scanEndDict:
+				case scanEndDict, scanEnd:
 					break Read
 				case scanBeginKeyLen, scanParseKeyLen, scanParseKey:
 				case scanEndKeyLen:
 					p = d.off
+				default:
+					d.error(errPhase)
 				}
-			} else { //op was the key string length
-				p = d.off
-				d.off += op
-				break ReadKey
 			}
 		}
 		key = string(d.data[p:d.off])
@@ -704,24 +710,66 @@ Read:
 			c = int(d.data[d.off])
 			d.off++
 			op = d.scan.step(&d.scan, c)
-			if op < 0 {
+			if op > 0 {
+				p = d.off
+				d.off += op
+				break ReadKey
+			} else {
 				switch op {
 				case scanEndDict:
 					break Read
 				case scanBeginKeyLen, scanParseKeyLen, scanParseKey:
 				case scanEndKeyLen:
 					p = d.off
+				default:
+					d.error(errPhase)
 				}
-			} else { // op was a string length
-				p = d.off
-				d.off += op
-				break ReadKey
 			}
 		}
 		key = string(d.data[p:d.off])
 		m[key] = d.valueInterface()
 	}
 	return m
+}
+
+// unmarshaler reads raw bencode into an Unmarshaler.
+func (d *decodeState) unmarshaler(v reflect.Value) {
+	if v.Kind() == reflect.Ptr && v.IsNil() {
+		v.Set(reflect.New(v.Type().Elem()))
+	}
+	u := v.Interface().(Unmarshaler)
+
+	var tmpScan scanner
+	tmpScan.reset()
+	tmpScan.step = d.scan.step
+	d.scan.step = stateEndValue
+
+	start := d.off
+
+	var op int
+ReadRaw:
+	for {
+		if d.off > len(d.data) {
+			d.error(errors.New("readed end of data"))
+		}
+
+		op = tmpScan.step(&tmpScan, int(d.data[d.off]))
+		if op > 0 {
+			d.off += op + 1
+		} else {
+			d.off++
+			switch op {
+			case scanEnd:
+				break ReadRaw
+			case scanError:
+				d.error(tmpScan.err)
+			}
+		}
+	}
+
+	if err := u.UnmarshalBencode(d.data[start:d.off]); err != nil {
+		d.error(err)
+	}
 }
 
 // Unmarshal parses the bencode-encoded data and stores the

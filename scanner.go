@@ -88,13 +88,13 @@ type scanner struct {
 // every subsequent call will retern scanError too.
 const (
 	// Continue.
+	scanBeginInteger   = 0 - iota
+	scanParseInteger   = 0 - iota
+	scanEndInteger     = 0 - iota
 	scanBeginStringLen = 0 - iota
 	scanParseStringLen = 0 - iota
 	scanEndStringLen   = 0 - iota
 	scanParseString    = 0 - iota
-	scanBeginInteger   = 0 - iota
-	scanParseInteger   = 0 - iota
-	scanEndInteger     = 0 - iota
 	scanBeginList      = 0 - iota
 	scanEndList        = 0 - iota
 	scanEndValue       = 0 - iota
@@ -116,7 +116,7 @@ const (
 // These values are stored in the parseState stack.
 // They give the current state of a composite value
 // being scanned. If the parser is inside a nested value
-// the parseSTate describes the nested state, outermost at entry 0.
+// the parseState describes the nested state, outermost at entry 0.
 const (
 	parseInteger   = iota // parsing an integer
 	parseString           // parsing a string
@@ -176,11 +176,9 @@ func (s *scanner) popParseState() {
 	n := len(s.parseState) - 1
 	s.parseState = s.parseState[0:n]
 	if n == 0 {
-		s.step = stateEndTop
 		s.endTop = true
-	} else {
-		s.step = stateEndValue
 	}
+	s.step = stateEndValue
 }
 
 // stateBeginValue is the state at the beginning of the input.
@@ -191,12 +189,12 @@ func stateBeginValue(s *scanner, c int) int {
 		s.pushParseState(parseInteger)
 		return scanBeginInteger
 	case 'l':
-		s.step = stateBeginList
+		s.step = stateBeginListValue
 		s.pushParseState(parseListValue)
 		return scanBeginList
 	case 'd':
 		s.step = stateBeginDictKey
-		s.pushParseState(parseDictKey)
+		s.pushParseState(parseDictValue)
 		return scanBeginDict
 	}
 
@@ -209,50 +207,13 @@ func stateBeginValue(s *scanner, c int) int {
 	return s.error(c, "looking for beginning of value")
 }
 
-// stateEndValue is the state after completing a value,
-// such as after reading 'e' or finishing a string.
-func stateEndValue(s *scanner, c int) int {
-	n := len(s.parseState)
-	if n == 0 {
-		// Completed top-level before the current byte.
-		s.step = stateEndTop
-		s.endTop = true
-		return stateEndTop(s, c)
-	}
-	ps := s.parseState[n-1]
-	switch ps {
-	case parseDictKey:
-		s.parseState[n-1] = parseDictValue
-		s.step = stateBeginValue
-		return scanDictValue
-
-	case parseDictValue:
-		s.popParseState()
-		s.step = stateBeginDictKey
-		return stateBeginDictKey(s, c)
-
-	case parseListValue:
-		if c == 'e' {
-			s.popParseState()
-			return scanEndList
-		}
-		s.step = stateBeginValue
-		//s.pushParseState(parseListValue)
-		return stateBeginValue(s, c)
-	}
-	return s.error(c, "")
-}
-
-// stateEndTop is the state after finishing the top-level value,
-// such as after finishing a dictionary or list.
-func stateEndTop(s *scanner, c int) int {
-	return scanEnd
-}
-
 // stateParseInteger is the state after reading an `i`.
 func stateParseInteger(s *scanner, c int) int {
 	if c == 'e' {
 		s.popParseState()
+		if s.endTop {
+			return scanEnd
+		}
 		return scanEndInteger
 	}
 	if (c >= '0' && c <= '9') || c == '-' {
@@ -263,15 +224,18 @@ func stateParseInteger(s *scanner, c int) int {
 
 func stateParseStringLen(s *scanner, c int) int {
 	if c == ':' {
-		var err error
-		var l int
-		if l, err = strconv.Atoi(string(s.strLenB)); err != nil {
+		l, err := strconv.Atoi(string(s.strLenB))
+		if err != nil {
 			s.err = err
 			return scanError
 		}
 		// decoder should read this string as a slice
 		s.popParseState()
-		s.step = stateEndValue
+		// BUG(emery): undefined behavior with top level strings
+
+		// this is a problem, if this string is a top-level object,
+		// the fact that this scanner has reached the end isn't communicated.
+		// I guess I could shift the string length and set scanEnd bits
 		return l
 	}
 	if c >= '0' && c <= '9' {
@@ -281,48 +245,81 @@ func stateParseStringLen(s *scanner, c int) int {
 	return s.error(c, "in string length")
 }
 
-func stateBeginList(s *scanner, c int) int {
+func stateBeginListValue(s *scanner, c int) int {
 	if c == 'e' {
 		s.popParseState()
+		if s.endTop {
+			return scanEnd
+		}
 		return scanEndList
 	}
 	return stateBeginValue(s, c)
 }
 
+func stateBeginDictKey(s *scanner, c int) int {
+	if c == 'e' {
+		s.popParseState() // pop parseDictValue
+		if s.endTop {
+			return scanEnd
+		}
+		return scanEndDict
+	}
+	if c >= '0' && c <= '9' {
+		s.strLenB = append(s.strLenB[0:0], byte(c))
+		s.step = stateParseKeyLen
+		return scanBeginKeyLen
+	}
+	return s.error(c, "in start of dictionary key length")
+}
+
 func stateParseKeyLen(s *scanner, c int) int {
 	if c == ':' {
-		var err error
-		var l int
-		if l, err = strconv.Atoi(string(s.strLenB)); err != nil {
+		l, err := strconv.Atoi(string(s.strLenB))
+		if err != nil {
 			s.err = err
 			return scanError
 		}
 		// decoder should read this chunk at once
-		s.popParseState()
 		s.step = stateBeginValue
-		s.pushParseState(parseDictValue)
 		return l
 	}
 	if c >= '0' && c <= '9' {
 		s.strLenB = append(s.strLenB, byte(c))
 		return scanParseKeyLen
 	}
-	return s.error(c, "in dicionary key length")
+	return s.error(c, "in dictionary key length")
 }
 
-func stateBeginDictKey(s *scanner, c int) int {
-	if c == 'e' {
-		if len(s.parseState) == 0 {
-			return scanEnd
+// stateEndValue is the state after completing a value,
+// such as after reading 'e' or finishing a string.
+func stateEndValue(s *scanner, c int) int {
+	n := len(s.parseState)
+	if n == 0 {
+		// Completed top-level before the current byte.
+		s.step = stateBeginValue
+		s.endTop = true
+		return scanEnd
+	}
+	ps := s.parseState[n-1]
+	switch ps {
+	case parseDictKey:
+		s.step = stateBeginValue
+		return scanDictValue
+
+	case parseDictValue:
+		s.step = stateBeginDictKey
+		return stateBeginDictKey(s, c)
+
+	case parseListValue:
+		if c == 'e' {
+			s.popParseState()
+			if s.endTop {
+				return scanEnd
+			}
+			return scanEndList
 		}
-		s.popParseState()
-		return scanEndDict
+		s.step = stateBeginValue
+		return stateBeginValue(s, c)
 	}
-	if c >= '0' && c <= '9' {
-		s.strLenB = append(s.strLenB[0:0], byte(c))
-		s.step = stateParseKeyLen
-		s.pushParseState(parseDictKey)
-		return scanBeginKeyLen
-	}
-	return s.error(c, "in dictionary key length")
+	return s.error(c, "")
 }

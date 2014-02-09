@@ -191,13 +191,34 @@ func isEmptyValue(v reflect.Value) bool {
 	return false
 }
 
-var textMarshalerType = reflect.TypeOf(new(encoding.TextMarshaler)).Elem()
+var (
+	marshalerType     = reflect.TypeOf(new(Marshaler)).Elem()
+	textMarshalerType = reflect.TypeOf(new(encoding.TextMarshaler)).Elem()
+)
 
 // reflectValue writes the value in v to the output.
 func (e *encodeState) reflectValue(v reflect.Value) {
+	if !v.IsValid() {
+		e.Write([]byte{'0', ':'})
+		return
+	}
+
+	if v.Type().Implements(marshalerType) {
+
+		m := v.Interface().(Marshaler)
+		b, err := m.MarshalBencode()
+		if err == nil {
+			_, err = e.Write(b)
+		}
+		if err != nil {
+			e.error(err)
+		}
+		return
+	}
+
 	if v.Type().Implements(textMarshalerType) {
-		u := v.Interface().(encoding.TextMarshaler)
-		b, err := u.MarshalText()
+		m := v.Interface().(encoding.TextMarshaler)
+		b, err := m.MarshalText()
 		if err != nil {
 			e.error(err)
 		}
@@ -262,7 +283,6 @@ func (e *encodeState) reflectValue(v reflect.Value) {
 			e.reflectValue(v.Index(i))
 		}
 		e.WriteByte('e')
-		return
 
 	case reflect.Interface, reflect.Ptr:
 		e.reflectValue(v.Elem())
