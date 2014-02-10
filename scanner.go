@@ -58,27 +58,6 @@ type SyntaxError struct {
 
 func (e *SyntaxError) Error() string { return e.msg }
 
-// A scanner is a bencode scanning state machine.
-type scanner struct {
-	// The step is a func to be called to execute the next transition.
-	step func(*scanner, int) int
-
-	// Reached end of top-level value.
-	endTop bool
-
-	// Stack of what we're in the middle of.
-	parseState []int
-
-	// Error that happened, if any.
-	err error
-
-	// storage for string length numeral bytes
-	strLen int
-
-	// total bytes consumed, updated by decoder.Decode
-	bytes int64
-}
-
 // These values are returned by the state transition functions
 // assigned to scanner.state and the method scanner.eof.
 // They give details about the current state of the scan that
@@ -180,6 +159,7 @@ func (s *scanner) popParseState() {
 	}
 	s.step = stateEndValue
 }
+
 
 // stateParseInteger is the state after reading an `i`.
 func stateParseInteger(s *scanner, c int) int {

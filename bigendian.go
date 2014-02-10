@@ -1,7 +1,9 @@
-// +build 386 amd64
-// build flags for little-endian architecture
+// +build !386,!amd64
+// build flags for unknown endian architecture
 
 package bencode
+
+import "strconv"
 
 type scanner struct {
 	// The step is a func to be called to execute the next transition.
@@ -17,7 +19,7 @@ type scanner struct {
 	err error
 
 	// storage for string length numeral bytes
-	strLen int
+	strLenB
 
 	// total bytes consumed, updated by decoder.Decode
 	bytes int64
@@ -41,7 +43,7 @@ func stateBeginValue(s *scanner, c int) int {
 	}
 
 	if c >= '0' && c <= '9' {
-		s.strLen = (c & 0xcf)
+		s.strLenB = append(s.strLenB[0:0], byte(c))
 		s.step = stateParseStringLen
 		s.pushParseState(parseString)
 		return scanBeginStringLen
@@ -51,6 +53,11 @@ func stateBeginValue(s *scanner, c int) int {
 
 func stateParseStringLen(s *scanner, c int) int {
 	if c == ':' {
+		l, err := strconv.Atoi(string(s.strLenB))
+		if err != nil {
+			s.err = err
+			return scanError
+		}
 		// decoder should read this string as a slice
 		s.popParseState()
 		// BUG(emery): undefined behavior with top level strings
@@ -58,11 +65,10 @@ func stateParseStringLen(s *scanner, c int) int {
 		// this is a problem, if this string is a top-level object,
 		// the fact that this scanner has reached the end isn't communicated.
 		// I guess I could shift the string length and set scanEnd bits
-		return s.strLen
+		return l
 	}
 	if c >= '0' && c <= '9' {
-		s.strLen *= 10
-		s.strLen += (c & 0xcf)
+		s.strLenB = append(s.strLenB, byte(c))
 		return scanParseStringLen
 	}
 	return s.error(c, "in string length")
@@ -77,7 +83,7 @@ func stateBeginDictKey(s *scanner, c int) int {
 		return scanEndDict
 	}
 	if c >= '0' && c <= '9' {
-		s.strLen = (c & 0xcf)
+		s.strLenB = append(s.strLenB[0:0], byte(c))
 		s.step = stateParseKeyLen
 		return scanBeginKeyLen
 	}
@@ -86,14 +92,17 @@ func stateBeginDictKey(s *scanner, c int) int {
 
 func stateParseKeyLen(s *scanner, c int) int {
 	if c == ':' {
+		l, err := strconv.Atoi(string(s.strLenB))
+		if err != nil {
+			s.err = err
+			return scanError
+		}
+		// decoder should read this chunk at once
 		s.step = stateBeginValue
-
-		// decoder should read this key chunk at once
-		return s.strLen
+		return l
 	}
 	if c >= '0' && c <= '9' {
-		s.strLen *= 10
-		s.strLen += (c & 0xcf)
+		s.strLenB = append(s.strLenB, byte(c))
 		return scanParseKeyLen
 	}
 	return s.error(c, "in dictionary key length")
