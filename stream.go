@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"runtime"
 )
 
 // An Encoder writes EBML data to an output stream.
@@ -16,12 +17,12 @@ type Encoder struct {
 	err error
 }
 
-// NewEncoder returns a new encoder that writes to w.
+// NewEncoder returns a new Encoder that writes to w.
 func NewEncoder(w io.Writer) *Encoder {
 	return &Encoder{w: w}
 }
 
-// Encode writes the EBML binary encoding of v to an Encoder stream.
+// Encode writes the EBML binary encoding of element to an Encoder stream.
 func (enc *Encoder) Encode(element interface{}) (err error) {
 	if enc.err != nil {
 		return enc.err
@@ -30,10 +31,11 @@ func (enc *Encoder) Encode(element interface{}) (err error) {
 	// encoding doesn't use error internally, but panics if there is a
 	// problem and then unwinds up to here.
 	defer func() {
-		if e := recover(); e != nil {
-			err = e.(ebmlError)
-			enc.err = err
-			return
+		if r := recover(); r != nil {
+			if _, ok := r.(runtime.Error); ok {
+				panic(r)
+			}
+			err = r.(error)
 		}
 	}()
 
@@ -47,7 +49,7 @@ func (enc *Encoder) Encode(element interface{}) (err error) {
 	return
 }
 
-// A Decoder decoders EBML data from a ReadSeeker
+// A Decoder decodes EBML data from a ReadSeeker
 type Decoder struct {
 	r   io.ReadSeeker
 	buf []byte // this is a resuable buffer for decoding
@@ -70,10 +72,11 @@ func (d *Decoder) Decode(element interface{}) (err error) {
 	// decoding doesn't use error internally, but panics if there is a
 	// problem and then unwinds up to here.
 	defer func() {
-		if e := recover(); e != nil {
-			err = e.(ebmlError)
-			d.err = err
-			return
+		if r := recover(); r != nil {
+			if _, ok := r.(runtime.Error); ok {
+				panic(r)
+			}
+			err = r.(error)
 		}
 	}()
 

@@ -151,13 +151,11 @@ type dateTestStruct struct {
 func TestDate(t *testing.T) {
 	now := time.Now()
 	rand.Seed(now.UnixNano())
-	I := rand.Int63()
+	I := rand.Int63n(1<<62)
 
 	var in, out dateTestStruct
-	
 
-	for i := 0; i < 256; i++ {
-		I = int64(float32(I) * 1.5)
+	for i := 0; i < 32; i++ {
 		date := now.Add(time.Duration(I))
 
 		in.D = date
@@ -176,6 +174,8 @@ func TestDate(t *testing.T) {
 		}
 	}
 }
+
+
 
 type benchTestStruct struct {
 	EbmlId ebml.Id `ebml:"81"`

@@ -8,6 +8,7 @@ the Exensible Binary Markup Langauge.
 package ebml
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -58,7 +59,7 @@ func (id Id) Bytes() []byte {
 		l = 4
 
 	default:
-		panic(fmt.Sprintf("invalid element ID %s", id))
+		panic(fmt.Errorf("invalid element ID %s", id))
 	}
 	b := make([]byte, l)
 	for l > 1 {
@@ -96,11 +97,15 @@ func getId(v reflect.Value) (id Id) {
 			var err error
 			id, err = NewIdFromString(f.Tag.Get("ebml"))
 			if err != nil {
-				panic("cannot resolve EBML Id for " + t.Name() + ", " + err.Error())
+				panic(errors.New("cannot resolve EBML Id for " + t.Name() + ", " + err.Error()))
 			}
 		}
 	} else {
-		panic("cannot resolve EBML Id for " + t.Name())
+		if n := t.Name(); n == "" {
+			panic(errors.New("cannot resolve EBML Id for anonymous struct"))
+		} else {
+			panic(errors.New("cannot resolve EBML Id for " + n))
+		}
 	}
 	return
 }
