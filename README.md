@@ -60,31 +60,29 @@ as zero or non-zero usigned integers.
 
 Not Implemented
 ---------------
-* Floating point values.
-
 * Default values.
 > Every non-container MAY be assigned a default value. If so, its
 > value will be added to the interpretation of the EBML data if no
 > element with another value exists in the data.
- 
+> 
 > As an example, consider this EBML DTD:
- 
+> 
 > Weight := 4101 {
 >   WeightValue := 41a1 uint;
 >   WeightUnit  := 41a2 string [ def:"kilogram" ];
 > }
- 
+> 
 > If the Weight element only contains the WeightValue element, the
 > WeightUnit element with value "kilogram" will be added when the
 > information is semantically processed. A WeightUnit element with
 > another value would of course override the default.
- 
+>
 > The default value can also be a symbol referring back to a
 > previously seen symbol. If however no such symbol has been seen,
 > i.e. it has not been encoded into the EBML data and has no default
 > value, the element will not be added as a child on the semantic
 > level.
- 
+> 
 > Weight := 4101 {
 >   WeightValue := 41a1 uint;
 >   WeightUnit  := 41a2 string [ def:WeightUnit ];

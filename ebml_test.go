@@ -15,6 +15,10 @@ import (
 	"time"
 )
 
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
 func ExampleHeader() {
 	var headerA, headerB ebml.Header
 	headerA.EBMLVersion = 1
@@ -90,24 +94,58 @@ type intTestStruct struct {
 
 func TestInt(t *testing.T) {
 	var in, out intTestStruct
-	var buf []byte
-	var err error
-	I := 2
-	for i := 0; i < 107; i++ {
-		I = int(float64(I) * -1.5)
-		in.I = I
-		buf, err = ebml.Marshal(in)
-		if err != nil {
-			t.Fatalf("marshal int %d: %s\n buf: %x", I, err, buf)
-		}
+	in.I = rand.Int()
 
+	buf, err := ebml.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal int %d: %s\n buf: %x", in.I, err, buf)
+		return
+	}
+
+	err = ebml.Unmarshal(buf, &out)
+	if err != nil && err != io.EOF {
+		t.Fatalf("unmarshal int %d: %s\n buf: %x", in.I, err, buf)
+		return
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("marshal and unmarshal int: in=%0.2x out=%0.2x", in.I, out.I)
+		return
+	}
+
+}
+
+func BenchmarkMarshalInt(b *testing.B) {
+	var (
+		in  intTestStruct
+		buf []byte
+		err error
+	)
+	in.I = rand.Int()
+	for i := 0; i < b.N; i++ {
+		_, err = ebml.Marshal(in)
+		if err != nil {
+			b.Fatalf("marshal int %d: %s\n buf: %x", in.I, err, buf)
+		}
+	}
+}
+
+func BenchmarkUnmarshalInt(b *testing.B) {
+	var (
+		in, out intTestStruct
+		buf     []byte
+		err     error
+	)
+	in.I = rand.Int()
+	buf, err = ebml.Marshal(in)
+	if err != nil {
+		b.Fatalf("marshal int %d: %s\n buf: %x", in.I, err, buf)
+		return
+	}
+	for i := 0; i < b.N; i++ {
 		err = ebml.Unmarshal(buf, &out)
 		if err != nil && err != io.EOF {
-			t.Fatalf("unmarshal int %d: %s\n buf: %x", I, err, buf)
-		}
-
-		if !reflect.DeepEqual(in, out) {
-			t.Fatalf("marshal and unmarshal int %d: in=%0.2x out=%0.2x", I, in.I, out.I)
+			b.Fatalf("unmarshal int %d: %s\n buf: %x", in.I, err, buf)
+			return
 		}
 	}
 }
@@ -118,27 +156,110 @@ type uintTestStruct struct {
 }
 
 func TestUint(t *testing.T) {
-	rand.Seed(time.Now().UnixNano())
-
 	var in, out uintTestStruct
-	var buf []byte
-	var err error
-	var I uint
-	for i := 0; i < 256; i++ {
-		I = uint(rand.Int63())
-		in.I = I
-		buf, err = ebml.Marshal(in)
-		if err != nil {
-			t.Fatalf("marshal uint %d: %s\n buf: %x", I, err, buf)
-		}
 
-		err = ebml.Unmarshal(buf, &out)
-		if err != nil && err != io.EOF {
-			t.Fatalf("unmarshal uint %d: %s\n buf: %x", I, err, buf)
-		}
+	in.I = uint(rand.Int63())
+	buf, err := ebml.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal uint %d: %s\n buf: %x", in.I, err, buf)
+	}
 
-		if !reflect.DeepEqual(in, out) {
-			t.Fatalf("marshal and unmarshal uint %d: in=%0.2x out=%0.2x", I, in.I, out.I)
+	err = ebml.Unmarshal(buf, &out)
+	if err != nil && err != io.EOF {
+		t.Fatalf("unmarshal uint %d: %s\n buf: %x", in.I, err, buf)
+	}
+
+	if !reflect.DeepEqual(in, out) {
+		t.Fatalf("marshal and unmarshal uint: in=%0.2x out=%0.2x", in.I, out.I)
+	}
+}
+
+func BenchmarkMarshalUint(b *testing.B) {
+	var (
+		in  uintTestStruct
+		err error
+	)
+
+	in.I = uint(rand.Int63())
+	for i := 0; i < b.N; i++ {
+		if _, err = ebml.Marshal(in); err != nil {
+			b.Fatalf("marshal uint %d: %s\n buf: %x", in.I, err)
+		}
+	}
+}
+
+func BenchmarkUnmarshalUint(b *testing.B) {
+	var (
+		in, out uintTestStruct
+		buf     []byte
+		err     error
+	)
+
+	in.I = uint(rand.Int63())
+	buf, err = ebml.Marshal(in)
+	if err != nil {
+		b.Fatalf("marshal uint %d: %s\n buf: %x", in.I, err, buf)
+	}
+	for i := 0; i < b.N; i++ {
+		if err = ebml.Unmarshal(buf, &out); err != nil && err != io.EOF {
+			b.Fatalf("unmarshal uint %d: %s\n buf: %x", in.I, err, buf)
+		}
+	}
+}
+
+type floatTestStruct struct {
+	EbmlId ebml.Id `ebml:"81"`
+	F      float32 `ebml:"88"`
+	FF     float64 `ebml:"89"`
+}
+
+func TestFloat(t *testing.T) {
+	var in, out floatTestStruct
+
+	in.F, in.FF = rand.Float32(), rand.Float64()
+	buf, err := ebml.Marshal(in)
+	if err != nil {
+		t.Fatalf("encode floats %f %f: %s\nbuf: %x", in.F, in.FF, err, buf)
+		return
+	}
+	if err = ebml.Unmarshal(buf, &out); err != nil {
+		t.Fatalf("decode floats %f %f: %s\nbuf: %x", in.FF, in.FF, err, buf)
+		return
+	}
+	if !reflect.DeepEqual(in, out) {
+		t.Errorf("encode/decode float mismatch: in=%f,%f out=%f,%f\n%x", in.F, in.FF, out.F, out.FF, buf)
+		return
+	}
+}
+
+func BenchmarkMarshalFloat(b *testing.B) {
+	var (
+		in  floatTestStruct
+		err error
+	)
+	in.F, in.FF = rand.Float32(), rand.Float64()
+
+	for i := 0; i < b.N; i++ {
+		if _, err = ebml.Marshal(in); err != nil {
+			b.Fatalf("encode floats %f %f: %s\nbuf: %x", in.F, in.FF, err)
+		}
+	}
+}
+
+func BenchmarkUnmarshalFloat(b *testing.B) {
+	var (
+		in, out floatTestStruct
+		buf     []byte
+		err     error
+	)
+	in.F, in.FF = rand.Float32(), rand.Float64()
+	if buf, err = ebml.Marshal(in); err != nil {
+		b.Fatalf("encode floats %f %f: %s\nbuf: %x", in.F, in.FF, err, buf)
+		return
+	}
+	for i := 0; i < b.N; i++ {
+		if err = ebml.Unmarshal(buf, &out); err != nil {
+			b.Fatalf("decode floats %f %f: %s", in.F, in.FF, err)
 		}
 	}
 }
@@ -150,8 +271,7 @@ type dateTestStruct struct {
 
 func TestDate(t *testing.T) {
 	now := time.Now()
-	rand.Seed(now.UnixNano())
-	I := rand.Int63n(1<<62)
+	I := rand.Int63n(1 << 62)
 
 	var in, out dateTestStruct
 
@@ -175,23 +295,40 @@ func TestDate(t *testing.T) {
 	}
 }
 
+type stringTest struct {
+	EbmlId ebml.Id `ebml:"81"`
+	S      string  `ebml:"82"`
+}
 
+func TestString(t *testing.T) {
+	var in, out stringTest
+	in.S = "wrong me not good sister, nor wrong yourself"
+	buf, err := ebml.Marshal(in)
+	if err != nil {
+		t.Fatal("marshal string failed:", err)
+	}
+	if err = ebml.Unmarshal(buf, &out); err != nil {
+		t.Fatalf("unmarshal string failed: %s\n %x", err, buf)
+	}
+
+	if in.S != out.S {
+		t.Fatalf("%s != %s\n%x", in.S, out.S, buf)
+	}
+}
 
 type benchTestStruct struct {
 	EbmlId ebml.Id `ebml:"81"`
 	A      uint    `ebml:"4011"`
 	B      int64   `ebml:"200011"`
-	C      int64   `ebml:"10000011"`
-	D      string  `ebml:"800000000"`
+	C      float64 `ebml:"10000011"`
+	D      string  `ebml:"3FFFFFFE"`
 }
 
 func BenchmarkEncoding(b *testing.B) {
 	var test benchTestStruct
-	rand.Seed(time.Now().UnixNano())
-
 	test.A = uint(rand.Int63())
 	test.B = rand.Int63()
-	test.C = 1 - rand.Int63()
+	test.C = rand.Float64()
 	test.D = "of ships and sails and whether pigs have wings"
 
 	var err error
@@ -206,12 +343,11 @@ func BenchmarkEncoding(b *testing.B) {
 }
 
 func BenchmarkDecoding(b *testing.B) {
-	var control benchTestStruct
-	rand.Seed(time.Now().UnixNano())
+	control := new(benchTestStruct)
 
 	control.A = uint(rand.Int63())
 	control.B = rand.Int63()
-	control.C = 1 - rand.Int63()
+	control.C = rand.Float64()
 	control.D = "of ships and sails and whether pigs have wings"
 
 	buf, err := ebml.Marshal(control)
@@ -227,7 +363,7 @@ func BenchmarkDecoding(b *testing.B) {
 		}
 
 		if !reflect.DeepEqual(control, test) {
-			b.Fatal("not equal")
+			b.Fatalf("not equal\n%v\n%v", control, test)
 		}
 		r.Seek(0, 0)
 	}

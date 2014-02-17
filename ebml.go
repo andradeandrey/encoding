@@ -42,8 +42,22 @@ type Header struct {
 // Id is a type that identifies an ebml element.
 type Id uint64
 
+func (id Id) len() (l int64) {
+	switch {
+	case id > 0x80 && id < 0xFF:
+		l = 1
+	case id > 0x4000 && id < 0x7FFF:
+		l = 2
+	case id > 0x200000 && id < 0x3FFFFF:
+		l = 3
+	case id > 0x10000000 && id < 0x3FFFFFFF:
+		l = 4
+	}
+	return
+}
+
 // Bytes returns an Id in byte slice form
-func (id Id) Bytes() []byte {
+func (id Id) bytes() []byte {
 	var l int
 	switch {
 	case id > 0x80 && id < 0xFF:

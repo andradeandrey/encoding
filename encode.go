@@ -4,6 +4,7 @@
 package ebml
 
 import (
+	"encoding/binary"
 	"fmt"
 	"io"
 	"reflect"
@@ -31,7 +32,7 @@ func (ce *containerElement) Append(e encoder) {
 }
 
 func (ce *containerElement) Size() (n int64) {
-	ce.header = append(ce.id.Bytes(), marshalSize(ce.size)...)
+	ce.header = append(ce.id.bytes(), marshalSize(ce.size)...)
 	return int64(len(ce.header)) + ce.size
 }
 
@@ -127,7 +128,7 @@ func isEmptyValue(v reflect.Value) bool {
 func encode(id Id, v reflect.Value) encoder {
 	if m, ok := v.Interface().(Marshaler); ok {
 		size, wt := m.MarshalEBML()
-		header := append(id.Bytes(), marshalSize(size)...)
+		header := append(id.bytes(), marshalSize(size)...)
 		return &marshalerElement{id, size, header, wt}
 	}
 
@@ -140,7 +141,6 @@ func encode(id Id, v reflect.Value) encoder {
 	}
 
 	switch v.Kind() {
-
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		x := v.Int()
 		return marshalInt(id, x)
@@ -148,6 +148,12 @@ func encode(id Id, v reflect.Value) encoder {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		x := v.Uint()
 		return marshalUint(id, x)
+
+	case reflect.Float32:
+		return float32Element{id, v.Interface().(float32)}
+
+	case reflect.Float64:
+		return float64Element{id, v.Interface().(float64)}
 
 	case reflect.String:
 		return encodeString(id, v)
@@ -261,7 +267,7 @@ func marshalInt(id Id, x int64) encoder {
 		}
 	}
 
-	idBuf := id.Bytes()
+	idBuf := id.bytes()
 	l := len(idBuf) + 1 + xl
 	b := make(simpleElement, l)
 	p := copy(b, idBuf)
@@ -298,7 +304,7 @@ func marshalUint(id Id, x uint64) encoder {
 	default:
 		xl = 8
 	}
-	idBuf := id.Bytes()
+	idBuf := id.bytes()
 
 	l := len(idBuf) + 1 + xl
 	b := make(simpleElement, l)
@@ -316,9 +322,47 @@ func marshalUint(id Id, x uint64) encoder {
 	return b
 }
 
+type float32Element struct {
+	id Id
+	f  float32
+}
+
+func (e float32Element) Size() int64 { return e.id.len() + 5 }
+func (e float32Element) WriteTo(w io.Writer) (int64, error) {
+	n, err := w.Write(e.id.bytes())
+	if err == nil {
+		_, err = w.Write([]byte{0x84})
+		if err == nil {
+			err = binary.Write(w, binary.BigEndian, e.f)
+			n += 5
+		}
+	}
+	return int64(n), err
+}
+
+type float64Element struct {
+	id Id
+	f  float64
+}
+
+func (e float64Element) Size() int64 { return e.id.len() + 9 }
+func (e float64Element) WriteTo(w io.Writer) (int64, error) {
+	n, err := w.Write(e.id.bytes())
+	if err == nil {
+		_, err = w.Write([]byte{0x88})
+		if err == nil {
+			n++
+			err = binary.Write(w, binary.BigEndian, e.f)
+		} else {
+			n += 8
+		}
+	}
+	return int64(n), err
+}
+
 func encodeSlice(id Id, v reflect.Value) encoder {
 	if bs, ok := v.Interface().([]byte); ok {
-		idBuf := id.Bytes()
+		idBuf := id.bytes()
 		sizeBuf := marshalSize(int64(len(bs)))
 		buf := make(simpleElement, len(idBuf)+len(sizeBuf)+len(bs))
 		n := copy(buf, idBuf)
@@ -339,7 +383,7 @@ func encodeString(id Id, v reflect.Value) encoder {
 	sb := []byte(v.String())
 	l := len(sb)
 	sz := marshalSize(int64(l))
-	idBuf := id.Bytes()
+	idBuf := id.bytes()
 	b := make(simpleElement, len(idBuf)+len(sz)+l)
 	n := copy(b, idBuf)
 	n += copy(b[n:], sz)
@@ -365,7 +409,7 @@ func encodeStruct(id Id, v reflect.Value) encoder {
 func encodeTime(id Id, t time.Time) encoder {
 	d := t.Sub(epoch) // epoch defined in ebml.go
 
-	idb := id.Bytes()
+	idb := id.bytes()
 	b := make(simpleElement, len(idb)+9)
 	n := copy(b, idb)
 	b[n] = 0x88 // length will be 8

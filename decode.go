@@ -4,6 +4,8 @@
 package ebml
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"reflect"
@@ -100,14 +102,16 @@ type decoderFunc func(d *Decoder, id Id, size int64, v reflect.Value)
 
 /* Sadly this using this table results in 'initialization loops' during building
 var decoderFuncTable = [...]decoderFunc{
-	reflect.Uint:   decodeUint,
-	reflect.Uint8:  decodeUint,
-	reflect.Uint16: decodeUint,
-	reflect.Uint32: decodeUint,
-	reflect.Uint64: decodeUint,
-	reflect.Slice:  decodeSlice,
-	reflect.String: decodeString,
-	reflect.Struct: decodeStruct,
+	reflect.Uint:    decodeUint,
+	reflect.Uint8:   decodeUint,
+	reflect.Uint16:  decodeUint,
+	reflect.Uint32:  decodeUint,
+	reflect.Uint64:  decodeUint,
+	reflect.Float32: decodeFloat,
+	reflect.Float64: decodeFloat,
+	reflect.Slice:   decodeSlice,
+	reflect.String:  decodeString,
+	reflect.Struct:  decodeStruct,
 }
 */
 
@@ -137,11 +141,14 @@ func decodeValue(d *Decoder, id Id, size int64, v reflect.Value) {
 	// I wanted to use an array of functions indexed by reflect.Kind,
 	// but kept getting initialization loop build errors
 	switch v.Kind() {
-
 	case reflect.Int, reflect.Int8, reflect.Int32, reflect.Int64:
 		fn = decodeInt
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		fn = decodeUint
+	case reflect.Float32:
+		fn = decodeFloat32
+	case reflect.Float64:
+		fn = decodeFloat64
 	case reflect.Slice:
 		fn = decodeSlice
 	case reflect.String:
@@ -194,6 +201,44 @@ func decodeUint(d *Decoder, id Id, size int64, v reflect.Value) {
 	if err != nil {
 		decError(err.Error())
 	}
+}
+
+func decodeFloat32(d *Decoder, id Id, size int64, v reflect.Value) {
+	var x float32
+	if size != 4 {
+		decError(fmt.Sprintf("cannot decode a float of len %d to a float32", size))
+	}
+
+	buf := d.buf[:size]
+	_, err := d.r.Read(buf)
+	if err != nil && err != io.EOF {
+		decError(err.Error())
+	}
+	err = binary.Read(bytes.NewReader(buf), binary.BigEndian, &x)
+	if err != nil {
+		println(fmt.Sprintf("%x", buf))
+		decError(err.Error())
+	}
+	v.SetFloat(float64(x))
+}
+
+func decodeFloat64(d *Decoder, id Id, size int64, v reflect.Value) {
+	var x float64
+	if size != 8 {
+		decError(fmt.Sprintf("cannot decode a float of len %d to a float64", size))
+	}
+
+	buf := d.buf[:size]
+	_, err := d.r.Read(buf)
+	if err != nil && err != io.EOF {
+		decError(err.Error())
+	}
+	err = binary.Read(bytes.NewReader(buf), binary.BigEndian, &x)
+	if err != nil {
+		println(fmt.Sprintf("%x", buf))
+		decError(err.Error())
+	}
+	v.SetFloat(x)
 }
 
 func decodeSlice(d *Decoder, id Id, size int64, v reflect.Value) {
@@ -257,17 +302,17 @@ func decodeStruct(d *Decoder, id Id, size int64, v reflect.Value) {
 
 		// look up if the subId should decode into a field
 		if n, ok = idField[subId]; ok {
-		decodeValue(d, subId, subSize, v.Field(n))
-		/*
-			subV = v.Field(n)
-			// Derefence pointer
-			for subV.Kind() == reflect.Ptr {
-				subV = subV.Elem()
-			}
+			decodeValue(d, subId, subSize, v.Field(n))
+			/*
+				subV = v.Field(n)
+				// Derefence pointer
+				for subV.Kind() == reflect.Ptr {
+					subV = subV.Elem()
+				}
 
-			// use the cached decoder funtion for field
-			fieldFunc[n]
-		*/
+				// use the cached decoder funtion for field
+				fieldFunc[n]
+			*/
 		} else {
 			d.r.Seek(size, 0)
 		}
