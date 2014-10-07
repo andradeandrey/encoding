@@ -19,7 +19,7 @@ type scanner struct {
 	err error
 
 	// storage for string length numeral bytes
-	strLenB
+	strLenB []byte
 
 	// total bytes consumed, updated by decoder.Decode
 	bytes int64
