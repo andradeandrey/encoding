@@ -347,15 +347,11 @@ func (d *decodeState) integer(v reflect.Value) {
 		v.SetString(s)
 
 	case reflect.Bool:
-		switch s {
-		case "1", "true":
-			v.SetBool(true)
-			return
-		case "0":
-			v.SetBool(true)
-			return
+		n, err := strconv.ParseInt(s, 10, 64)
+		if err != nil {
+			d.error(err)
 		}
-		fallthrough
+		v.SetBool(n != 0)
 
 	default:
 		d.error(&UnmarshalTypeError{"integer " + s, v.Type()})
