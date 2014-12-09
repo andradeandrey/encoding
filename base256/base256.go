@@ -21,6 +21,8 @@ func (e InvalidZero) Error() string {
 	return fmt.Sprintf("base256: invalid zero rune %q", rune(e))
 }
 
+var Braille, _ = NewEncoding('⠀')
+
 // NewEncoding generates a new Encoding using r as 0x00.
 func NewEncoding(r rune) (Encoding, error) {
 	if !utf8.ValidRune(r) {
